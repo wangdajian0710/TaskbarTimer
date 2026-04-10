@@ -1,4 +1,4 @@
-﻿# Taskbar Timer - 完整展示版
+﻿# Taskbar Timer - 完整展示版（分段后继续计时+右键菜单）
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -26,7 +26,7 @@ public class Win32Forms {
 
 $script:running = $false; $script:pinned = $false
 $script:startTime = $null; $script:pausedElapsed = [TimeSpan]::Zero
-$script:laps = @(); $script:lapStart = $null
+$script:laps = @(); $script:lapStart = $null; $script:lastLapTime = [TimeSpan]::Zero
 
 # 主窗口
 $form = New-Object System.Windows.Forms.Form
@@ -103,6 +103,17 @@ $lblClock.Padding = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
 $timerPanel = New-Object System.Windows.Forms.Panel
 $timerPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
 $timerPanel.BackColor = [System.Drawing.Color]::Transparent
+$timerPanel.ContextMenuStrip = $null
+
+# 右键菜单
+$ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$mPause = New-Object System.Windows.Forms.ToolStripMenuItem("暂停")
+$mPause.Add_Click({ ToggleTimer })
+$mClear = New-Object System.Windows.Forms.ToolStripMenuItem("清除")
+$mClear.Add_Click({ ResetAll })
+[void]$ctxMenu.Items.Add($mPause)
+[void]$ctxMenu.Items.Add($mClear)
+$timerPanel.ContextMenuStrip = $ctxMenu
 
 # 总计时（大字）
 $lblTotal = New-Object System.Windows.Forms.Label
@@ -142,7 +153,7 @@ $btnPanel.Height = 40
 $btnPanel.BackColor = [System.Drawing.Color]::FromArgb(180, 35, 38, 58)
 $btnPanel.Padding = [System.Windows.Forms.Padding]::new(8, 6, 8, 6)
 
-function MakeBtn($text, $width, $color) {
+function MakeBtn($text, $width) {
     $b = New-Object System.Windows.Forms.Button
     $b.Dock = [System.Windows.Forms.DockStyle]::Left; $b.Width = $width
     $b.Text = $text
@@ -156,13 +167,13 @@ function MakeBtn($text, $width, $color) {
     $b
 }
 
-$btnStart = MakeBtn "开始" 60 ([System.Drawing.Color]::FromArgb(200, 210, 230))
+$btnStart = MakeBtn "开始" 60
 $btnStart.Add_Click({ ToggleTimer })
 
-$btnLap = MakeBtn "分段" 60 ([System.Drawing.Color]::FromArgb(200, 210, 230))
+$btnLap = MakeBtn "分段" 60
 $btnLap.Add_Click({ RecordLap })
 
-$btnReset = MakeBtn "清空" 60 ([System.Drawing.Color]::FromArgb(200, 180, 180))
+$btnReset = MakeBtn "清空" 60
 $btnReset.Add_Click({ ResetAll })
 
 [void]$btnPanel.Controls.Add($btnReset)
@@ -184,7 +195,9 @@ $timer.Add_Tick({
         $ts = $elapsed.ToString("mm\:ss\.f")
         $lblTotal.Text = $ts
         $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 210, 130)
-        $lapElapsed = if ($script:lapStart) { (Get-Date) - $script:lapStart } else { [TimeSpan]::Zero }
+        
+        # 当前分段：上次分段到现在的间隔
+        $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
         $lblLap.Text = "分段 " + $lapElapsed.ToString("mm\:ss\.f")
     }
 })
@@ -192,34 +205,57 @@ $timer.Add_Tick({
 function ToggleTimer {
     if (-not $script:running) {
         $script:running = $true
-        $script:lapStart = if ($script:lapStart) { $script:lapStart } else { Get-Date }
         if (-not $script:startTime) { $script:startTime = Get-Date }
+        if (-not $script:lapStart) { $script:lapStart = Get-Date }
         $btnStart.Text = "暂停"
         $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 220, 130)
         $btnStart.BackColor = [System.Drawing.Color]::FromArgb(70, 65, 45)
+        $mPause.Text = "暂停"
     } else {
+        # 暂停时累计上次分段的时间
+        if ($script:lapStart) {
+            $script:lastLapTime += (Get-Date) - $script:lapStart
+            $script:lapStart = $null
+        }
         $script:running = $false
-        $script:pausedElapsed += if ($script:lapStart) { (Get-Date) - $script:lapStart } else { [TimeSpan]::Zero }
-        $script:lapStart = $null
         $btnStart.Text = "开始"
         $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
         $btnStart.BackColor = [System.Drawing.Color]::FromArgb(50, 55, 80)
+        $mPause.Text = "开始"
+        $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 245, 255)
     }
 }
 
 function RecordLap {
+    # 计算当前分段时长（上次分段到现在的间隔）
+    $lapElapsed = [TimeSpan]::Zero
+    if ($script:running -and $script:lapStart) {
+        $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
+    } else {
+        $lapElapsed = $script:lastLapTime
+    }
+    
     $total = if ($script:startTime) { $script:pausedElapsed + (Get-Date) - $script:startTime } else { $script:pausedElapsed }
-    $lap = if ($script:lapStart) { (Get-Date) - $script:lapStart } else { [TimeSpan]::Zero }
-    $script:laps = @("$($total.ToString('mm\:ss\.f')) [+$($lap.ToString('mm\:ss\.f'))]") + $script:laps
+    
+    # 记录分段：总时间 [+本次分段时长]
+    $lapStr = $lapElapsed.ToString("mm\:ss\.f")
+    $script:laps = @("$($total.ToString('mm\:ss\.f')) [+$lapStr]") + $script:laps
     if ($script:laps.Count -gt 20) { $script:laps = $script:laps[0..19] }
+    
     $lapList.Items.Clear()
     foreach ($l in $script:laps) { [void]$lapList.Items.Add($l) }
-    $script:lapStart = Get-Date
+    
+    # 重置当前分段计时，继续计时
+    $script:lastLapTime = [TimeSpan]::Zero
+    if ($script:running) {
+        $script:lapStart = Get-Date
+    }
 }
 
 function ResetAll {
     $script:running = $false; $script:startTime = $null
-    $script:pausedElapsed = [TimeSpan]::Zero; $script:laps = @(); $script:lapStart = $null
+    $script:pausedElapsed = [TimeSpan]::Zero; $script:laps = @()
+    $script:lapStart = $null; $script:lastLapTime = [TimeSpan]::Zero
     $lblTotal.Text = "00:00.0"
     $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 245, 255)
     $lblLap.Text = "分段 00:00.0"
@@ -227,6 +263,7 @@ function ResetAll {
     $btnStart.Text = "开始"
     $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
     $btnStart.BackColor = [System.Drawing.Color]::FromArgb(50, 55, 80)
+    $mPause.Text = "开始"
 }
 
 function TogglePin {
@@ -265,17 +302,17 @@ $notifyIcon.Visible = $true
 $notifyIcon.Icon = $ico
 $notifyIcon.Text = "任务栏计时器"
 
-$ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$trayCtx = New-Object System.Windows.Forms.ContextMenuStrip
 $mShow = New-Object System.Windows.Forms.ToolStripMenuItem("显示窗口")
 $mShow.Add_Click({ $form.Location = New-Object System.Drawing.Point(100, 100); $form.Show(); $form.Activate() })
 $mPin = New-Object System.Windows.Forms.ToolStripMenuItem("固定位置")
 $mPin.Add_Click({ TogglePin })
 $mExit = New-Object System.Windows.Forms.ToolStripMenuItem("退出")
 $mExit.Add_Click({ ExitApp })
-[void]$ctxMenu.Items.Add($mShow); [void]$ctxMenu.Items.Add($mPin); [void]$ctxMenu.Items.Add($mExit)
-$notifyIcon.ContextMenuStrip = $ctxMenu
+[void]$trayCtx.Items.Add($mShow); [void]$trayCtx.Items.Add($mPin); [void]$trayCtx.Items.Add($mExit)
+$notifyIcon.ContextMenuStrip = $trayCtx
 
-# 定位：屏幕右下方
+# 定位
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $form.Location = New-Object System.Drawing.Point(($scr.Right - $W - 10), ($scr.Bottom - $H - 4))
 
