@@ -19,7 +19,7 @@ $script:lapStart    = $null                       # 当前分段开始时间
 
 # ============ 窗口尺寸 ============
 $WINDOW_W   = 440
-$HEADER_H   = 32    # 拖动条 + 总计时行高度
+$HEADER_H   = 42    # 拖动条 + 总计时行高度
 $LAP_ROW_H  = 22    # 每个分段行高度
 $MAX_LAPS   = 10    # 最多显示分段数
 $LAPS_AREA  = $LAP_ROW_H * $MAX_LAPS
@@ -49,10 +49,11 @@ $form.Add_Paint({
     $g = $e.Graphics
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.Clear([System.Drawing.Color]::Transparent)
-    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(210, 22, 24, 36))
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(120, 22, 24, 36))
     $rect  = New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height)
     $g.FillRectangle($brush, $rect)
     $brush.Dispose()
+    $rect.Dispose()
     $g.Dispose()
 })
 
@@ -102,7 +103,7 @@ $headerTable.Dock       = [System.Windows.Forms.DockStyle]::Fill
 $headerTable.ColumnCount = 2
 $headerTable.RowCount   = 2
 $headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
-$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 190)))
+$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 210)))
 $headerTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 60)))
 $headerTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 40)))
 
@@ -114,8 +115,8 @@ $timeCol.BackColor = [System.Drawing.Color]::Transparent
 # 时钟（右上角小字）
 $lblClock = New-Object System.Windows.Forms.Label
 $lblClock.Dock        = [System.Windows.Forms.DockStyle]::Top
-$lblClock.Height      = 14
-$lblClock.Font        = New-Object System.Drawing.Font("Consolas", 8)
+$lblClock.Height      = 18
+$lblClock.Font        = New-Object System.Drawing.Font("Consolas", 11)
 $lblClock.ForeColor   = [System.Drawing.Color]::FromArgb(180, 200, 220)
 $lblClock.TextAlign   = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblClock.Text        = "HH:MM:SS"
@@ -126,7 +127,7 @@ $lblClock.Margin      = New-Object System.Windows.Forms.Padding(0)
 # 总计时（大字，可拖动）
 $lblTotal = New-Object System.Windows.Forms.Label
 $lblTotal.Dock      = [System.Windows.Forms.DockStyle]::Fill
-$lblTotal.Font      = New-Object System.Drawing.Font("Consolas", 18, [System.Drawing.FontStyle]::Bold)
+$lblTotal.Font      = New-Object System.Drawing.Font("Consolas", 24, [System.Drawing.FontStyle]::Bold)
 $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 235, 240, 255)
 $lblTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTotal.Text      = "00:00.0"
@@ -157,7 +158,8 @@ function New-Btn {
     $b = New-Object System.Windows.Forms.Button
     $b.Text          = $Text
     $b.FlatStyle      = [System.Windows.Forms.FlatStyle]::Flat
-    $b.FlatAppearance.BorderSize = 0
+    $b.FlatAppearance.BorderSize = 1
+    $b.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(150, 140, 160, 200)
     $r = [Convert]::ToInt32($FgARGB.Split(',')[0])
     $g = [Convert]::ToInt32($FgARGB.Split(',')[1])
     $b2= [Convert]::ToInt32($FgARGB.Split(',')[2])
@@ -168,7 +170,7 @@ function New-Btn {
     $bb2=[Convert]::ToInt32($BgARGB.Split(',')[2])
     $ba = [Convert]::ToInt32($BgARGB.Split(',')[3])
     $b.BackColor      = [System.Drawing.Color]::FromArgb($ba,$br,$bg,$bb2)
-    $b.Font           = New-Object System.Drawing.Font("Microsoft YaHei UI", $FontSize, [System.Drawing.FontStyle]::Bold)
+    $b.Font           = New-Object System.Drawing.Font("Microsoft YaHei UI", 12, [System.Drawing.FontStyle]::Bold)
     $b.Cursor         = [System.Windows.Forms.Cursors]::Hand
     $b.Margin         = New-Object System.Windows.Forms.Padding(2)
     $b.Add_Click($OnClick)
