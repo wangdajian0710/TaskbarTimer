@@ -19,8 +19,8 @@ $script:lapStart      = $null
 $script:expanded       = $false   # 详情面板是否展开
 
 # ============ 窗口尺寸（极简条） ============
-$STRIP_W  = 280   # 细条宽度
-$STRIP_H  = 36    # 细条高度（拖动条6 + 内容30）
+$STRIP_W  = 210   # 细条宽度 ≈ 5cm
+$STRIP_H  = 42    # 细条高度 ≈ 1cm
 $TICK_MS  = 100
 
 # ============ Native API ============
@@ -117,22 +117,12 @@ $lblTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTotal.Text      = "00:00.0"
 $lblTotal.Cursor    = [System.Windows.Forms.Cursors]::SizeAll
 
-# 时钟标签
-$lblClock = New-Object System.Windows.Forms.Label
-$lblClock.Dock      = [System.Windows.Forms.DockStyle]::Right
-$lblClock.Width     = 56
-$lblClock.Font      = New-Object System.Drawing.Font("Consolas", 9)
-$lblClock.ForeColor = [System.Drawing.Color]::FromArgb(150, 190, 215)
-$lblClock.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
-$lblClock.Text      = "HH:MM"
-$lblClock.Cursor    = [System.Windows.Forms.Cursors]::Default
-
 # 分段按钮
 $btnLap = New-Object System.Windows.Forms.Button
 $btnLap.Dock       = [System.Windows.Forms.DockStyle]::Right
-$btnLap.Width      = 52
+$btnLap.Width      = 42
 $btnLap.Text       = "分段"
-$btnLap.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 8, [System.Drawing.FontStyle]::Bold)
+$btnLap.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
 $btnLap.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
 $btnLap.ForeColor  = [System.Drawing.Color]::FromArgb(200, 220, 255)
 $btnLap.BackColor  = [System.Drawing.Color]::FromArgb(60, 65, 90)
@@ -147,7 +137,7 @@ $btnLap.Add_Click({
 # 📌固定按钮
 $btnPin = New-Object System.Windows.Forms.Button
 $btnPin.Dock       = [System.Windows.Forms.DockStyle]::Right
-$btnPin.Width      = 28
+$btnPin.Width      = 26
 $btnPin.Text       = "📌"
 $btnPin.Font       = New-Object System.Drawing.Font("Segoe UI Symbol", 9)
 $btnPin.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
@@ -174,9 +164,9 @@ $btnPin.Add_Click({
 # 开始/暂停按钮（整合为一个）
 $btnStart = New-Object System.Windows.Forms.Button
 $btnStart.Dock       = [System.Windows.Forms.DockStyle]::Right
-$btnStart.Width      = 44
+$btnStart.Width      = 40
 $btnStart.Text       = "开始"
-$btnStart.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 8, [System.Drawing.FontStyle]::Bold)
+$btnStart.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
 $btnStart.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
 $btnStart.ForeColor  = [System.Drawing.Color]::FromArgb(180, 200, 255)
 $btnStart.BackColor  = [System.Drawing.Color]::FromArgb(55, 60, 85)
@@ -198,9 +188,8 @@ $btnStart.Add_Click({
     }
 })
 
-# 将各控件加入内容面板
+# 将各控件加入内容面板（不含时钟，节省空间）
 [void]$contentPanel.Controls.Add($lblTotal)
-[void]$contentPanel.Controls.Add($lblClock)
 [void]$contentPanel.Controls.Add($btnLap)
 [void]$contentPanel.Controls.Add($btnPin)
 [void]$contentPanel.Controls.Add($btnStart)
@@ -216,7 +205,7 @@ $detailForm.TopMost         = $true
 $detailForm.ShowInTaskbar   = $false
 $detailForm.AllowTransparency = $true
 $detailForm.BackColor      = [System.Drawing.Color]::FromArgb(1, 0, 0, 0)
-$DETAIL_W = 280
+$DETAIL_W = 210
 $DETAIL_H = 320
 $detailForm.Size = New-Object System.Drawing.Size($DETAIL_W, $DETAIL_H)
 
@@ -248,15 +237,15 @@ $form.Add_Move({
 # ---- 详情头部：总计时 + 当前分段时间 ----
 $detailTop = New-Object System.Windows.Forms.Panel
 $detailTop.Dock    = [System.Windows.Forms.DockStyle]::Top
-$detailTop.Height  = 60
-$detailTop.Padding = New-Object System.Windows.Forms.Padding(12, 8, 12, 4)
+$detailTop.Height  = 50
+$detailTop.Padding = New-Object System.Windows.Forms.Padding(8, 6, 8, 4)
 $detailTop.BackColor = [System.Drawing.Color]::Transparent
 
 # 总计时（大字）
 $lblDetailTotal = New-Object System.Windows.Forms.Label
 $lblDetailTotal.Dock      = [System.Windows.Forms.DockStyle]::Top
-$lblDetailTotal.Height   = 26
-$lblDetailTotal.Font      = New-Object System.Drawing.Font("Consolas", 13, [System.Drawing.FontStyle]::Bold)
+$lblDetailTotal.Height   = 22
+$lblDetailTotal.Font      = New-Object System.Drawing.Font("Consolas", 11, [System.Drawing.FontStyle]::Bold)
 $lblDetailTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 240, 255)
 $lblDetailTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblDetailTotal.Text      = "00:00.0"
@@ -264,7 +253,7 @@ $lblDetailTotal.Text      = "00:00.0"
 # 当前分段
 $lblDetailLap = New-Object System.Windows.Forms.Label
 $lblDetailLap.Dock      = [System.Windows.Forms.DockStyle]::Fill
-$lblDetailLap.Font      = New-Object System.Drawing.Font("Consolas", 10)
+$lblDetailLap.Font      = New-Object System.Drawing.Font("Consolas", 9)
 $lblDetailLap.ForeColor = [System.Drawing.Color]::FromArgb(180, 200, 220)
 $lblDetailLap.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblDetailLap.Text      = "分段 00:00.0"
@@ -275,26 +264,26 @@ $lblDetailLap.Text      = "分段 00:00.0"
 # ---- 操作按钮行 ----
 $detailBtnRow = New-Object System.Windows.Forms.Panel
 $detailBtnRow.Dock    = [System.Windows.Forms.DockStyle]::Top
-$detailBtnRow.Height  = 36
-$detailBtnRow.Padding = New-Object System.Windows.Forms.Padding(12, 4, 12, 4)
+$detailBtnRow.Height  = 32
+$detailBtnRow.Padding = New-Object System.Windows.Forms.Padding(8, 3, 8, 3)
 $detailBtnRow.BackColor = [System.Drawing.Color]::Transparent
 
 $btnDetailStart = New-Object System.Windows.Forms.Button
 $btnDetailStart.Dock       = [System.Windows.Forms.DockStyle]::Fill
 $btnDetailStart.Text       = "开始"
-$btnDetailStart.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailStart.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
 $btnDetailStart.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
 $btnDetailStart.ForeColor  = [System.Drawing.Color]::FromArgb(180, 200, 255)
 $btnDetailStart.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
 $btnDetailStart.Cursor     = [System.Windows.Forms.Cursors]::Hand
 $btnDetailStart.FlatAppearance.BorderSize = 0
-$btnDetailStart.Add_Click($btnStart.Add_Click)  # 同步主按钮
+$btnDetailStart.Add_Click($btnStart.Add_Click)
 
 $btnDetailLap = New-Object System.Windows.Forms.Button
 $btnDetailLap.Dock       = [System.Windows.Forms.DockStyle]::Left
-$btnDetailLap.Width     = 70
+$btnDetailLap.Width     = 46
 $btnDetailLap.Text       = "分段"
-$btnDetailLap.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailLap.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
 $btnDetailLap.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
 $btnDetailLap.ForeColor  = [System.Drawing.Color]::FromArgb(200, 220, 255)
 $btnDetailLap.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
@@ -307,9 +296,9 @@ $btnDetailLap.Add_Click({
 
 $btnDetailClose = New-Object System.Windows.Forms.Button
 $btnDetailClose.Dock       = [System.Windows.Forms.DockStyle]::Right
-$btnDetailClose.Width     = 50
+$btnDetailClose.Width     = 36
 $btnDetailClose.Text       = "关闭"
-$btnDetailClose.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailClose.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
 $btnDetailClose.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
 $btnDetailClose.ForeColor  = [System.Drawing.Color]::FromArgb(200, 180, 180)
 $btnDetailClose.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
@@ -319,9 +308,9 @@ $btnDetailClose.Add_Click({ ToggleDetail })
 
 $btnDetailReset = New-Object System.Windows.Forms.Button
 $btnDetailReset.Dock       = [System.Windows.Forms.DockStyle]::Right
-$btnDetailReset.Width     = 50
+$btnDetailReset.Width     = 36
 $btnDetailReset.Text       = "清空"
-$btnDetailReset.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailReset.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
 $btnDetailReset.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
 $btnDetailReset.ForeColor  = [System.Drawing.Color]::FromArgb(200, 180, 180)
 $btnDetailReset.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
@@ -437,7 +426,6 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = $TICK_MS
 
 $timer.Add_Tick({
-    $lblClock.Text = (Get-Date).ToString("HH:mm")
 
     $total = $script:pausedElapsed
     if ($script:running -and $script:lapStart) {
