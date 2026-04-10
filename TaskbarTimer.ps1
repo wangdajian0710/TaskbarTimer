@@ -2,7 +2,7 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$script:W = 340
+$script:W = 380
 
 Add-Type @"
 using System; using System.Runtime.InteropServices; using System.Drawing; using System.Windows.Forms;
@@ -94,7 +94,10 @@ $lblTitle.Add_MouseMove({ param($s,$e)
 })
 $lblTitle.Add_MouseUp({ $script:isDrag = $false })
 
-# ===== Timer Bar (matches mockup exactly) =====
+# Double-click title = hide to tray
+$lblTitle.Add_MouseDoubleClick({ $form.Hide() })
+
+# ===== Timer Bar =====
 $tBar = New-Object System.Windows.Forms.Panel
 $tBar.Dock = [System.Windows.Forms.DockStyle]::Top
 $tBar.Height = 52
@@ -108,12 +111,13 @@ $dragH.BackColor = [System.Drawing.Color]::FromArgb(80, 85, 100)
 $dragH.Location = New-Object System.Drawing.Point(4, 16)
 $dragH.Cursor = [System.Windows.Forms.Cursors]::SizeAll
 
-# Current time box
+# Current time box (clickable - toggle start/pause)
 $curBox = New-Object System.Windows.Forms.Panel
 $curBox.Location = New-Object System.Drawing.Point(18, 8)
-$curBox.Size = New-Object System.Drawing.Size(140, 36)
+$curBox.Size = New-Object System.Drawing.Size(150, 36)
 $curBox.BackColor = [System.Drawing.Color]::FromArgb(35, 28, 44, 58)
 $curBox.Padding = [System.Windows.Forms.Padding]::new(8, 4, 8, 4)
+$curBox.Cursor = [System.Windows.Forms.Cursors]::Hand
 
 $lblCL = New-Object System.Windows.Forms.Label
 $lblCL.Dock = [System.Windows.Forms.DockStyle]::Left; $lblCL.Width = 32
@@ -131,14 +135,17 @@ $lblCur.Text = "00:00.0"
 
 [void]$curBox.Controls.AddRange(@($lblCL, $lblCur))
 
+# Click curBox = toggle start/pause
+$curBox.Add_Click({ if ($script:current.Running) { Do-Pause } else { Do-Start } })
+
 # Clock
 $lblClock = New-Object System.Windows.Forms.Label
-$lblClock.Location = New-Object System.Drawing.Point(166, 18)
+$lblClock.Location = New-Object System.Drawing.Point(176, 18)
 $lblClock.Font = New-Object System.Drawing.Font("Consolas", 10)
 $lblClock.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 120)
 $lblClock.Text = "HH:MM"
 
-# Buttons - Chinese text matching mockup
+# Buttons
 function MkBtn($t, $x, $c) {
     $b = New-Object System.Windows.Forms.Button
     $b.Location = New-Object System.Drawing.Point($x, 10)
@@ -153,9 +160,9 @@ function MkBtn($t, $x, $c) {
     return $b
 }
 
-$btnS = MkBtn ([char]0x5F00 + [char]0x59CB) 220 ([System.Drawing.Color]::FromArgb(200, 136, 255, 136))
-$btnL = MkBtn ([char]0x5206 + [char]0x6BB5) 268 ([System.Drawing.Color]::FromArgb(200, 136, 136, 255))
-$btnC = MkBtn ([char]0x6E05 + [char]0x7A7A) 316 ([System.Drawing.Color]::FromArgb(200, 255, 136, 136))
+$btnS = MkBtn ([char]0x5F00 + [char]0x59CB) 230 ([System.Drawing.Color]::FromArgb(200, 136, 255, 136))
+$btnL = MkBtn ([char]0x5206 + [char]0x6BB5) 280 ([System.Drawing.Color]::FromArgb(200, 136, 136, 255))
+$btnC = MkBtn ([char]0x6E05 + [char]0x7A7A) 330 ([System.Drawing.Color]::FromArgb(200, 255, 136, 136))
 
 [void]$tBar.Controls.AddRange(@($dragH, $curBox, $lblClock, $btnS, $btnL, $btnC))
 
@@ -168,49 +175,37 @@ $segPanel.Visible = $false
 
 [void]$form.Controls.AddRange(@($segPanel, $tBar, $titleBar))
 
-# ===== Build Segment Row (matches mockup exactly) =====
+# ===== Segment Row =====
 function New-Row($seg) {
     $row = New-Object System.Windows.Forms.Panel
-    $row.Height = 42
-    $row.Dock = [System.Windows.Forms.DockStyle]::Top
+    $row.Height = 42; $row.Dock = [System.Windows.Forms.DockStyle]::Top
     $row.BackColor = [System.Drawing.Color]::FromArgb(22, 24, 38)
     $row.Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 1)
 
-    # #N
     $nL = New-Object System.Windows.Forms.Label
-    $nL.Location = New-Object System.Drawing.Point(6, 0)
-    $nL.Size = New-Object System.Drawing.Size(24, 42)
-    $nL.Text = "#$($seg.Id)"
-    $nL.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $nL.Location = New-Object System.Drawing.Point(6, 0); $nL.Size = New-Object System.Drawing.Size(24, 42)
+    $nL.Text = "#$($seg.Id)"; $nL.Font = New-Object System.Drawing.Font("Consolas", 9)
     $nL.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 100)
     $nL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 
-    # Time (red)
     $tL = New-Object System.Windows.Forms.Label
-    $tL.Location = New-Object System.Drawing.Point(30, 2)
-    $tL.Size = New-Object System.Drawing.Size(100, 22)
+    $tL.Location = New-Object System.Drawing.Point(30, 2); $tL.Size = New-Object System.Drawing.Size(100, 22)
     $tL.Font = New-Object System.Drawing.Font("Consolas", 15, [System.Drawing.FontStyle]::Bold)
     $tL.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 68, 68)
-    $tL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $tL.Text = "00:00.0"
+    $tL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft; $tL.Text = "00:00.0"
 
-    # Status
     $sL = New-Object System.Windows.Forms.Label
-    $sL.Location = New-Object System.Drawing.Point(30, 24)
-    $sL.Size = New-Object System.Drawing.Size(100, 16)
+    $sL.Location = New-Object System.Drawing.Point(30, 24); $sL.Size = New-Object System.Drawing.Size(100, 16)
     $sL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8)
-    $sL.ForeColor = [System.Drawing.Color]::FromArgb(150, 60, 60)
+    $sL.ForeColor = [System.Drawing.Color]::FromArgb(140, 55, 55)
     $sL.Text = [char]0x25CF + " " + [char]0x8BA1 + [char]0x65F6 + [char]0x4E2D + "..."
 
-    # Segment buttons: ⏸ ⬆ ✕
     function MkSb($t, $x, $c, $act) {
         $b = New-Object System.Windows.Forms.Button
         $b.Size = New-Object System.Drawing.Size(26, 26)
         $b.Location = New-Object System.Drawing.Point($x, 8)
-        $b.Text = $t
-        $b.Font = New-Object System.Drawing.Font("Segoe UI Symbol", 10)
-        $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-        $b.ForeColor = $c
+        $b.Text = $t; $b.Font = New-Object System.Drawing.Font("Segoe UI Symbol", 10)
+        $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat; $b.ForeColor = $c
         $b.BackColor = [System.Drawing.Color]::FromArgb(30, 34, 48)
         $b.FlatAppearance.BorderSize = 0
         $b.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(45, 48, 68)
@@ -278,36 +273,22 @@ function Do-Pause {
 
 function Do-Split {
     if (-not $script:current.StartTime) { return }
-    $wasRunning = $script:current.Running
-    if ($wasRunning -and -not $script:current.PausedAt) {
-        $script:current.PausedAt = Get-Date
-    }
+    # Move current to segment list (keep running)
     $seg = @{
         Id = $script:nextId++
         StartTime = $script:current.StartTime
         PausedAt = $script:current.PausedAt
         TotalPausedMs = $script:current.TotalPausedMs
-        Running = $wasRunning
+        Running = $script:current.Running
     }
     [void]$script:segments.Insert(0, $seg)
     if ($script:segments.Count -gt 30) { $script:segments.RemoveAt($script:segments.Count - 1) }
 
+    # Reset current to ZERO and PAUSED
     $script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
     $lblCur.Text = "00:00.0"
-
-    if ($wasRunning) {
-        $script:current.StartTime = Get-Date
-        $script:current.Running = $true
-        $btnS.Text = [char]0x6682 + [char]0x505C
-        $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 200, 100)
-        if ($seg.PausedAt) {
-            $seg.TotalPausedMs += ((Get-Date) - $seg.PausedAt).TotalMilliseconds
-            $seg.PausedAt = $null
-        }
-    } else {
-        $btnS.Text = [char]0x5F00 + [char]0x59CB
-        $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
-    }
+    $btnS.Text = [char]0x5F00 + [char]0x59CB
+    $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
     Rebuild-UI
 }
 
@@ -343,13 +324,10 @@ function Do-Promote($id) {
     }
     if ($idx -lt 0) { return }
     $seg = $script:segments[$idx]
-
     $old = @{
         Id = $script:nextId++
-        StartTime = $script:current.StartTime
-        PausedAt = $script:current.PausedAt
-        TotalPausedMs = $script:current.TotalPausedMs
-        Running = $script:current.Running
+        StartTime = $script:current.StartTime; PausedAt = $script:current.PausedAt
+        TotalPausedMs = $script:current.TotalPausedMs; Running = $script:current.Running
     }
     $script:current = @{
         StartTime = $seg.StartTime; PausedAt = $seg.PausedAt
