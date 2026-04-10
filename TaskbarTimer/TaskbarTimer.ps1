@@ -93,46 +93,44 @@ $dragBar.Add_MouseUp({
 # ============ 头部面板（总计时 + 时钟 + 按钮） ============
 $headerPanel = New-Object System.Windows.Forms.Panel
 $headerPanel.Dock    = [System.Windows.Forms.DockStyle]::Top
-$headerPanel.Height  = $HEADER_H
-$headerPanel.Padding = New-Object System.Windows.Forms.Padding(8, 4, 8, 4)
+$headerPanel.Height  = 52
+$headerPanel.Padding = New-Object System.Windows.Forms.Padding(10, 6, 10, 6)
 $headerPanel.BackColor = [System.Drawing.Color]::Transparent
 
-# 头部行布局
+# 头部行布局（1行：左侧总计时+时钟 / 右侧按钮）
 $headerTable = New-Object System.Windows.Forms.TableLayoutPanel
 $headerTable.Dock       = [System.Windows.Forms.DockStyle]::Fill
 $headerTable.ColumnCount = 2
-$headerTable.RowCount   = 2
-$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
-$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 210)))
-$headerTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 60)))
-$headerTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 40)))
+$headerTable.RowCount   = 1
+$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 55)))
+$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 45)))
 
-# --- 左列：时钟 + 总计时 ---
+# --- 左列：总计时 + 时钟（同一行，分两格） ---
 $timeCol = New-Object System.Windows.Forms.Panel
 $timeCol.Dock = [System.Windows.Forms.DockStyle]::Fill
 $timeCol.BackColor = [System.Drawing.Color]::Transparent
 
-# 时钟（右上角小字）
-$lblClock = New-Object System.Windows.Forms.Label
-$lblClock.Dock        = [System.Windows.Forms.DockStyle]::Top
-$lblClock.Height      = 18
-$lblClock.Font        = New-Object System.Drawing.Font("Consolas", 11)
-$lblClock.ForeColor   = [System.Drawing.Color]::FromArgb(180, 200, 220)
-$lblClock.TextAlign   = [System.Drawing.ContentAlignment]::MiddleLeft
-$lblClock.Text        = "HH:MM:SS"
-$lblClock.Padding    = New-Object System.Windows.Forms.Padding(0)
-$lblClock.Cursor      = [System.Windows.Forms.Cursors]::SizeAll
-$lblClock.Margin      = New-Object System.Windows.Forms.Padding(0)
-
-# 总计时（大字，可拖动）
+# 总计时（大字）
 $lblTotal = New-Object System.Windows.Forms.Label
 $lblTotal.Dock      = [System.Windows.Forms.DockStyle]::Fill
-$lblTotal.Font      = New-Object System.Drawing.Font("Consolas", 24, [System.Drawing.FontStyle]::Bold)
+$lblTotal.Font      = New-Object System.Drawing.Font("Consolas", 22, [System.Drawing.FontStyle]::Bold)
 $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 235, 240, 255)
 $lblTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTotal.Text      = "00:00.0"
-$lblTotal.Padding   = New-Object System.Windows.Forms.Padding(0, 0, 0, 0)
+$lblTotal.Padding   = New-Object System.Windows.Forms.Padding(0)
 $lblTotal.Cursor    = [System.Windows.Forms.Cursors]::SizeAll
+
+# 时钟（总计时右边的细小字）
+$lblClock = New-Object System.Windows.Forms.Label
+$lblClock.Dock        = [System.Windows.Forms.DockStyle]::Right
+$lblClock.Width       = 72
+$lblClock.Font        = New-Object System.Drawing.Font("Consolas", 10)
+$lblClock.ForeColor   = [System.Drawing.Color]::FromArgb(180, 200, 220)
+$lblClock.TextAlign   = [System.Drawing.ContentAlignment]::MiddleRight
+$lblClock.Text        = "HH:MM"
+$lblClock.Padding    = New-Object System.Windows.Forms.Padding(0)
+$lblClock.Cursor      = [System.Windows.Forms.Cursors]::SizeAll
+$lblClock.Margin      = New-Object System.Windows.Forms.Padding(0)
 
 [void]$timeCol.Controls.Add($lblTotal)
 [void]$timeCol.Controls.Add($lblClock)
@@ -227,7 +225,6 @@ $btnReset = New-Btn -Text "清空" -FgARGB "255,160,185" -BgARGB "55,56,76" -OnC
     $btnStart.ForeColor   = [System.Drawing.Color]::FromArgb(180, 240, 180)
     $lblTotal.Text        = "00:00.0"
     $lblTotal.ForeColor   = [System.Drawing.Color]::FromArgb(255, 235, 240, 255)
-    $lblLapDisplay.Text   = ""
     RefreshLapList
 }
 
@@ -272,16 +269,6 @@ $btnPin.Add_Click({
 [void]$btnPanel.Controls.Add($btnRow)
 [void]$headerTable.Controls.Add($timeCol,  0, 0)
 [void]$headerTable.Controls.Add($btnPanel, 1, 0)
-
-# 分段显示行（在按钮行下方）
-$lblLapDisplay = New-Object System.Windows.Forms.Label
-$lblLapDisplay.Dock        = [System.Windows.Forms.DockStyle]::Bottom
-$lblLapDisplay.Height      = 16
-$lblLapDisplay.Font         = New-Object System.Drawing.Font("Consolas", 8)
-$lblLapDisplay.ForeColor   = [System.Drawing.Color]::FromArgb(150, 180, 210)
-$lblLapDisplay.TextAlign   = [System.Drawing.ContentAlignment]::MiddleCenter
-$lblLapDisplay.Text        = ""
-[void]$btnPanel.Controls.Add($lblLapDisplay)
 
 [void]$headerPanel.Controls.Add($headerTable)
 [void]$form.Controls.Add($headerPanel)
@@ -372,9 +359,6 @@ function RefreshLapList {
     $lapListBox.EndUpdate()
     if ($script:laps.Count -gt 0) {
         $last = $script:laps[0]
-        $lblLapDisplay.Text = "最新分段  #{0:D2}  {1}" -f $script:laps.Count, (Format-LapTime -ts $last)
-    } else {
-        $lblLapDisplay.Text = ""
     }
 }
 
