@@ -1,76 +1,92 @@
-﻿<#
+<#
 .SYNOPSIS
-    Taskbar Timer - 任务栏计时器
+    Taskbar Timer - 任务栏计时器（极简版）
 .DESCRIPTION
-    半透明浮动工具条，显示时钟 + 总计时 + 分段列表
-    按钮：开始 / 暂停 / 分段 / 清空 / 固定
+    默认：紧凑细条（拖动条+总计时+时钟+📌）
+    点分段按钮：展开详情面板（分段时间+列表+操作按钮）
 #>
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # ============ 状态 ============
-$script:running     = $false
-$script:pinned      = $false
-$script:startTime   = $null
-$script:pausedElapsed = [System.TimeSpan]::Zero   # 暂停时已积累的总时间
-$script:laps        = @()                         # 分段列表，每项 [TimeSpan]
-$script:lapStart    = $null                       # 当前分段开始时间
+$script:running       = $false
+$script:pinned        = $false
+$script:startTime     = $null
+$script:pausedElapsed = [System.TimeSpan]::Zero
+$script:laps          = @()
+$script:lapStart      = $null
+$script:expanded       = $false   # 详情面板是否展开
 
-# ============ 窗口尺寸 ============
-$WINDOW_W   = 440
-$HEADER_H   = 42    # 拖动条 + 总计时行高度
-$LAP_ROW_H  = 22    # 每个分段行高度
-$MAX_LAPS   = 10    # 最多显示分段数
-$LAPS_AREA  = $LAP_ROW_H * $MAX_LAPS
-$FORM_H     = $HEADER_H + $LAPS_AREA + 6
+# ============ 窗口尺寸（极简条） ============
+$STRIP_W  = 280   # 细条宽度
+$STRIP_H  = 36    # 细条高度（拖动条6 + 内容30）
+$TICK_MS  = 100
 
-# ============ 主窗口 ============
+# ============ Native API ============
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("user32.dll")] public static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] public static extern int SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+    public const int WM_NCLBUTTONDOWN = 0xA1;
+    public const int HTCAPTION = 2;
+}
+"@
+
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Drawing;
+using System.Windows.Forms;
+public class NativeMethods {
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr hObject);
+    [DllImport("user32.dll")] public static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int w, int h);
+}
+"@
+
+# ============ 主窗口（极简细条） ============
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "Taskbar Timer"
-$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
-$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-$form.TopMost       = $true
-$form.ShowInTaskbar = $false
-$form.Size          = New-Object System.Drawing.Size($WINDOW_W, $FORM_H)
+$form.Text            = "TaskbarTimer"
+$form.FormBorderStyle  = [System.Windows.Forms.FormBorderStyle]::None
+$form.StartPosition    = [System.Windows.Forms.FormStartPosition]::Manual
+$form.TopMost          = $true
+$form.ShowInTaskbar    = $false
+$form.Size             = New-Object System.Drawing.Size($STRIP_W, $STRIP_H)
 $form.AllowTransparency = $true
-$form.BackColor     = [System.Drawing.Color]::FromArgb(1, 0, 0, 0)
+$form.BackColor        = [System.Drawing.Color]::FromArgb(1, 0, 0, 0)
 
-# 圆角
 $form.Add_Load({
     $form.Region = [System.Drawing.Region]::FromHrgn(
-        [System.Windows.Forms.NativeMethods]::CreateRoundRectRgn(0, 0, $form.Width, $form.Height, 12, 12)
+        [NativeMethods]::CreateRoundRectRgn(0, 0, $form.Width, $form.Height, 8, 8)
     )
 })
 
-# 背景Paint
 $form.Add_Paint({
     param($s, $e)
     $g = $e.Graphics
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.Clear([System.Drawing.Color]::Transparent)
-    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(120, 22, 24, 36))
-    $rect  = New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height)
-    $g.FillRectangle($brush, $rect)
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(180, 22, 24, 36))
+    $g.FillRectangle($brush, 0, 0, $form.Width, $form.Height)
     $brush.Dispose()
-    $rect.Dispose()
-    $g.Dispose()
 })
 
-# ============ 拖动条（顶部细条） ============
+# ============ 拖动条 ============
 $dragBar = New-Object System.Windows.Forms.Panel
-$dragBar.Dock        = [System.Windows.Forms.DockStyle]::Top
-$dragBar.Height      = 6
-$dragBar.BackColor   = [System.Drawing.Color]::FromArgb(180, 88, 91, 112)
-$dragBar.Cursor      = [System.Windows.Forms.Cursors]::SizeAll
-$script:barDragging  = $false
-$script:barStart     = $null
+$dragBar.Dock       = [System.Windows.Forms.DockStyle]::Top
+$dragBar.Height     = 6
+$dragBar.BackColor  = [System.Drawing.Color]::FromArgb(180, 88, 91, 112)
+$dragBar.Cursor     = [System.Windows.Forms.Cursors]::SizeAll
+$script:barDragging = $false
+$script:barStart    = $null
 
 $dragBar.Add_MouseDown({
     param($s, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left -and -not $script:pinned) {
         $script:barDragging = $true
-        $script:barStart    = New-Object System.Drawing.Point($e.X, $e.Y)
+        $script:barStart   = $e.Location
         $dragBar.Capture   = $true
     }
 })
@@ -79,443 +95,421 @@ $dragBar.Add_MouseMove({
     if ($script:barDragging -and -not $script:pinned) {
         $pt = $form.PointToScreen($e.Location)
         $form.Location = New-Object System.Drawing.Point(
-            ($pt.X - $script:barStart.X),
-            ($pt.Y - $script:barStart.Y)
+            ($pt.X - $script:barStart.X), ($pt.Y - $script:barStart.Y)
         )
     }
 })
-$dragBar.Add_MouseUp({
-    $script:barDragging = $false
-    $dragBar.Capture = $false
-})
+$dragBar.Add_MouseUp({ $script:barDragging = $false; $dragBar.Capture = $false })
 [void]$form.Controls.Add($dragBar)
 
-# ============ 头部面板（总计时 + 时钟 + 按钮） ============
-$headerPanel = New-Object System.Windows.Forms.Panel
-$headerPanel.Dock    = [System.Windows.Forms.DockStyle]::Top
-$headerPanel.Height  = 52
-$headerPanel.Padding = New-Object System.Windows.Forms.Padding(10, 6, 10, 6)
-$headerPanel.BackColor = [System.Drawing.Color]::Transparent
+# ============ 内容行（总计时 + 时钟 + 📌 + 分段按钮） ============
+$contentPanel = New-Object System.Windows.Forms.Panel
+$contentPanel.Dock    = [System.Windows.Forms.DockStyle]::Fill
+$contentPanel.BackColor = [System.Drawing.Color]::Transparent
+$contentPanel.Padding = New-Object System.Windows.Forms.Padding(8, 0, 8, 0)
 
-# 头部行布局（1行：左侧总计时+时钟 / 右侧按钮）
-$headerTable = New-Object System.Windows.Forms.TableLayoutPanel
-$headerTable.Dock       = [System.Windows.Forms.DockStyle]::Fill
-$headerTable.ColumnCount = 2
-$headerTable.RowCount   = 1
-$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 55)))
-$headerTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 45)))
-
-# --- 左列：总计时 + 时钟（同一行，分两格） ---
-$timeCol = New-Object System.Windows.Forms.Panel
-$timeCol.Dock = [System.Windows.Forms.DockStyle]::Fill
-$timeCol.BackColor = [System.Drawing.Color]::Transparent
-
-# 总计时（大字）
+# 总计时标签
 $lblTotal = New-Object System.Windows.Forms.Label
 $lblTotal.Dock      = [System.Windows.Forms.DockStyle]::Fill
-$lblTotal.Font      = New-Object System.Drawing.Font("Consolas", 22, [System.Drawing.FontStyle]::Bold)
+$lblTotal.Font      = New-Object System.Drawing.Font("Consolas", 14, [System.Drawing.FontStyle]::Bold)
 $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 235, 240, 255)
 $lblTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTotal.Text      = "00:00.0"
-$lblTotal.Padding   = New-Object System.Windows.Forms.Padding(0)
 $lblTotal.Cursor    = [System.Windows.Forms.Cursors]::SizeAll
 
-# 时钟（总计时右边的细小字）
+# 时钟标签
 $lblClock = New-Object System.Windows.Forms.Label
-$lblClock.Dock        = [System.Windows.Forms.DockStyle]::Right
-$lblClock.Width       = 72
-$lblClock.Font        = New-Object System.Drawing.Font("Consolas", 10)
-$lblClock.ForeColor   = [System.Drawing.Color]::FromArgb(180, 200, 220)
-$lblClock.TextAlign   = [System.Drawing.ContentAlignment]::MiddleRight
-$lblClock.Text        = "HH:MM"
-$lblClock.Padding    = New-Object System.Windows.Forms.Padding(0)
-$lblClock.Cursor      = [System.Windows.Forms.Cursors]::SizeAll
-$lblClock.Margin      = New-Object System.Windows.Forms.Padding(0)
+$lblClock.Dock      = [System.Windows.Forms.DockStyle]::Right
+$lblClock.Width     = 56
+$lblClock.Font      = New-Object System.Drawing.Font("Consolas", 9)
+$lblClock.ForeColor = [System.Drawing.Color]::FromArgb(150, 190, 215)
+$lblClock.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$lblClock.Text      = "HH:MM"
+$lblClock.Cursor    = [System.Windows.Forms.Cursors]::Default
 
-[void]$timeCol.Controls.Add($lblTotal)
-[void]$timeCol.Controls.Add($lblClock)
+# 分段按钮
+$btnLap = New-Object System.Windows.Forms.Button
+$btnLap.Dock       = [System.Windows.Forms.DockStyle]::Right
+$btnLap.Width      = 52
+$btnLap.Text       = "分段"
+$btnLap.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 8, [System.Drawing.FontStyle]::Bold)
+$btnLap.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
+$btnLap.ForeColor  = [System.Drawing.Color]::FromArgb(200, 220, 255)
+$btnLap.BackColor  = [System.Drawing.Color]::FromArgb(60, 65, 90)
+$btnLap.Cursor     = [System.Windows.Forms.Cursors]::Hand
+$btnLap.FlatAppearance.BorderSize = 0
+$btnLap.Margin     = New-Object System.Windows.Forms.Padding(0)
+$btnLap.Padding    = New-Object System.Windows.Forms.Padding(0)
+$btnLap.Add_Click({
+    ToggleDetail
+})
 
-# --- 右列：按钮行 ---
-$btnPanel = New-Object System.Windows.Forms.Panel
-$btnPanel.Dock    = [System.Windows.Forms.DockStyle]::Fill
-$btnPanel.BackColor = [System.Drawing.Color]::Transparent
-
-$btnRow = New-Object System.Windows.Forms.TableLayoutPanel
-$btnRow.Dock           = [System.Windows.Forms.DockStyle]::Fill
-$btnRow.ColumnCount    = 5
-$btnRow.RowCount       = 1
-$btnRow.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 25)))
-$btnRow.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 25)))
-$btnRow.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 25)))
-$btnRow.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 25)))
-$btnRow.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 25)))
-
-# 通用按钮工厂
-function New-Btn {
-    param([string]$Text, [string]$FgARGB, [string]$BgARGB, [scriptblock]$OnClick, [float]$FontSize = 10)
-    $b = New-Object System.Windows.Forms.Button
-    $b.Text          = $Text
-    $b.FlatStyle      = [System.Windows.Forms.FlatStyle]::Flat
-    $b.FlatAppearance.BorderSize = 1
-    $b.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(150, 140, 160, 200)
-    $r = [Convert]::ToInt32($FgARGB.Split(',')[0])
-    $g = [Convert]::ToInt32($FgARGB.Split(',')[1])
-    $b2= [Convert]::ToInt32($FgARGB.Split(',')[2])
-    $a = [Convert]::ToInt32($FgARGB.Split(',')[3])
-    $b.ForeColor      = [System.Drawing.Color]::FromArgb($a,$r,$g,$b2)
-    $br = [Convert]::ToInt32($BgARGB.Split(',')[0])
-    $bg = [Convert]::ToInt32($BgARGB.Split(',')[1])
-    $bb2=[Convert]::ToInt32($BgARGB.Split(',')[2])
-    $ba = [Convert]::ToInt32($BgARGB.Split(',')[3])
-    $b.BackColor      = [System.Drawing.Color]::FromArgb($ba,$br,$bg,$bb2)
-    $b.Font           = New-Object System.Drawing.Font("Microsoft YaHei UI", 12, [System.Drawing.FontStyle]::Bold)
-    $b.Cursor         = [System.Windows.Forms.Cursors]::Hand
-    $b.Margin         = New-Object System.Windows.Forms.Padding(2)
-    $b.Add_Click($OnClick)
-    return $b
-}
-
-$btnStart = New-Btn -Text "开始" -FgARGB "180,240,180" -BgARGB "55,56,76" -OnClick {
-    if (-not $script:running) {
-        $script:running   = $true
-        $script:lapStart  = Get-Date
-        $btnStart.Text    = "计时中"
-        $btnStart.BackColor = [System.Drawing.Color]::FromArgb(180, 166, 227, 161)
-        $btnStart.ForeColor= [System.Drawing.Color]::FromArgb(255, 22, 24, 36)
-    }
-}
-
-$btnPause = New-Btn -Text "暂停" -FgARGB "255,230,180" -BgARGB "55,56,76" -OnClick {
-    if ($script:running) {
-        $script:running     = $false
-        $script:pausedElapsed += (Get-Date) - $script:lapStart
-        $btnStart.Text      = "继续"
-        $btnStart.BackColor = [System.Drawing.Color]::FromArgb(180, 55, 56, 76)
-        $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(180, 240, 180)
-    }
-}
-
-$btnLap = New-Btn -Text "分段" -FgARGB "180,220,255" -BgARGB "55,56,76" -OnClick {
-    if ($script:running -or $script:pausedElapsed -gt [System.TimeSpan]::Zero) {
-        $total = $script:pausedElapsed
-        if ($script:running -and $script:lapStart) {
-            $total += (Get-Date) - $script:lapStart
-        }
-        if ($total -gt [System.TimeSpan]::Zero) {
-            $script:laps = @($total) + $script:laps
-            if ($script:laps.Count -gt $MAX_LAPS) {
-                $script:laps = $script:laps[0..($MAX_LAPS-1)]
-            }
-            # 重置分段，继续计时
-            $script:running  = $true
-            $script:lapStart = Get-Date
-            # 不清 pausedElapsed，保留总计时
-            RefreshLapList
-        }
-    }
-}
-
-$btnReset = New-Btn -Text "清空" -FgARGB "255,160,185" -BgARGB "55,56,76" -OnClick {
-    $script:running       = $false
-    $script:pausedElapsed = [System.TimeSpan]::Zero
-    $script:lapStart      = $null
-    $script:laps          = @()
-    $btnStart.Text        = "开始"
-    $btnStart.BackColor   = [System.Drawing.Color]::FromArgb(180, 55, 56, 76)
-    $btnStart.ForeColor   = [System.Drawing.Color]::FromArgb(180, 240, 180)
-    $lblTotal.Text        = "00:00.0"
-    $lblTotal.ForeColor   = [System.Drawing.Color]::FromArgb(255, 235, 240, 255)
-    RefreshLapList
-}
-
+# 📌固定按钮
 $btnPin = New-Object System.Windows.Forms.Button
-$btnPin.Text          = "📌"
-$btnPin.FlatStyle     = [System.Windows.Forms.FlatStyle]::Flat
-$btnPin.FlatAppearance.BorderSize = 1
-$btnPin.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(100, 180, 200, 230)
-$btnPin.BackColor     = [System.Drawing.Color]::FromArgb(180, 50, 55, 75)
-$btnPin.ForeColor     = [System.Drawing.Color]::FromArgb(255, 220, 230, 255)
-$btnPin.Font          = New-Object System.Drawing.Font("Segoe UI Emoji", 11)
-$btnPin.Cursor        = [System.Windows.Forms.Cursors]::Hand
-$btnPin.Margin        = New-Object System.Windows.Forms.Padding(2)
+$btnPin.Dock       = [System.Windows.Forms.DockStyle]::Right
+$btnPin.Width      = 28
+$btnPin.Text       = "📌"
+$btnPin.Font       = New-Object System.Drawing.Font("Segoe UI Symbol", 9)
+$btnPin.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
+$btnPin.ForeColor  = [System.Drawing.Color]::FromArgb(255, 220, 230, 255)
+$btnPin.BackColor  = [System.Drawing.Color]::Transparent
+$btnPin.Cursor     = [System.Windows.Forms.Cursors]::Hand
+$btnPin.FlatAppearance.BorderSize = 0
+$btnPin.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(40, 80, 100, 130)
 $btnPin.Add_Click({
     $script:pinned = -not $script:pinned
     if ($script:pinned) {
-        $btnPin.BackColor       = [System.Drawing.Color]::FromArgb(180, 166, 227, 161)
-        $btnPin.ForeColor       = [System.Drawing.Color]::FromArgb(255, 22, 24, 36)
-        $btnPin.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(200, 166, 227, 161)
-        $dragBar.BackColor      = [System.Drawing.Color]::FromArgb(200, 166, 227, 161)
-        $dragBar.Cursor         = [System.Windows.Forms.Cursors]::No
-        $lblClock.Cursor        = [System.Windows.Forms.Cursors]::Default
-        $lblTotal.Cursor        = [System.Windows.Forms.Cursors]::Default
-        $notifyIcon.ShowBalloonTip(1500,"任务栏计时器","已固定位置 - 再点📌取消固定",[System.Windows.Forms.ToolTipIcon]::Info)
+        $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 255, 180)
+        $dragBar.BackColor = [System.Drawing.Color]::FromArgb(160, 100, 180, 220)
+        $dragBar.Cursor    = [System.Windows.Forms.Cursors]::No
+        $notifyIcon.ShowBalloonTip(1500,"任务栏计时器","已固定位置，再点📌取消",[System.Windows.Forms.ToolTipIcon]::Info)
     } else {
-        $btnPin.BackColor       = [System.Drawing.Color]::FromArgb(180, 50, 55, 75)
-        $btnPin.ForeColor       = [System.Drawing.Color]::FromArgb(255, 220, 230, 255)
-        $btnPin.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(100, 180, 200, 230)
-        $dragBar.BackColor      = [System.Drawing.Color]::FromArgb(180, 88, 91, 112)
-        $dragBar.Cursor         = [System.Windows.Forms.Cursors]::SizeAll
-        $lblClock.Cursor        = [System.Windows.Forms.Cursors]::SizeAll
-        $lblTotal.Cursor        = [System.Windows.Forms.Cursors]::SizeAll
-        $notifyIcon.ShowBalloonTip(1500,"任务栏计时器","已取消固定 - 可自由拖动",[System.Windows.Forms.ToolTipIcon]::Info)
+        $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 230, 255)
+        $dragBar.BackColor = [System.Drawing.Color]::FromArgb(180, 88, 91, 112)
+        $dragBar.Cursor    = [System.Windows.Forms.Cursors]::SizeAll
+        $notifyIcon.ShowBalloonTip(1500,"任务栏计时器","已取消固定",[System.Windows.Forms.ToolTipIcon]::Info)
     }
 })
 
-[void]$btnRow.Controls.Add($btnStart, 0, 0)
-[void]$btnRow.Controls.Add($btnPause, 1, 0)
-[void]$btnRow.Controls.Add($btnLap,   2, 0)
-[void]$btnRow.Controls.Add($btnReset,3, 0)
-[void]$btnRow.Controls.Add($btnPin,  4, 0)
-[void]$btnPanel.Controls.Add($btnRow)
-[void]$headerTable.Controls.Add($timeCol,  0, 0)
-[void]$headerTable.Controls.Add($btnPanel, 1, 0)
-
-[void]$headerPanel.Controls.Add($headerTable)
-[void]$form.Controls.Add($headerPanel)
-
-# ============ 分段列表面板 ============
-$lapListPanel = New-Object System.Windows.Forms.Panel
-$lapListPanel.Dock    = [System.Windows.Forms.DockStyle]::Fill
-$lapListPanel.BackColor = [System.Drawing.Color]::FromArgb(10, 18, 28)
-$lapListPanel.Padding = New-Object System.Windows.Forms.Padding(8, 2, 8, 4)
-
-$lapListBox = New-Object System.Windows.Forms.ListBox
-$lapListBox.Dock           = [System.Windows.Forms.DockStyle]::Fill
-$lapListBox.BackColor     = [System.Drawing.Color]::FromArgb(10, 18, 28)
-$lapListBox.ForeColor     = [System.Drawing.Color]::FromArgb(200, 210, 225)
-$lapListBox.BorderStyle   = [System.Windows.Forms.BorderStyle]::None
-$lapListBox.Font          = New-Object System.Drawing.Font("Consolas", 9)
-$lapListBox.IntegralHeight = $false
-$lapListBox.SelectionMode = [System.Windows.Forms.SelectionMode]::None
-$lapListBox.DrawMode      = [System.Windows.Forms.DrawMode]::OwnerDrawFixed
-$lapListBox.ItemHeight    = $LAP_ROW_H
-
-function Format-LapTime {
-    param([System.TimeSpan]$ts)
-    if ($ts.TotalHours -ge 1) {
-        return "{0:D2}:{1:D2}:{2:D2}.{3:D1}" -f [int]$ts.TotalHours, $ts.Minutes, $ts.Seconds, [int]($ts.Milliseconds / 100)
-    }
-    return "{0:D2}:{1:D2}.{2:D1}" -f $ts.Minutes, $ts.Seconds, [int]($ts.Milliseconds / 100)
-}
-
-$lapListBox.Add_DrawItem({
-    param($s, $e)
-    $idx = $e.Index
-    if ($idx -lt 0 -or $idx -ge $script:laps.Count) { return }
-    $lap = $script:laps[$idx]
-    $isOdd = ($idx % 2 -eq 0)
-    $bg = if ($isOdd) {
-        [System.Drawing.Color]::FromArgb(255, 16, 22, 34)
+# 开始/暂停按钮（整合为一个）
+$btnStart = New-Object System.Windows.Forms.Button
+$btnStart.Dock       = [System.Windows.Forms.DockStyle]::Right
+$btnStart.Width      = 44
+$btnStart.Text       = "开始"
+$btnStart.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 8, [System.Drawing.FontStyle]::Bold)
+$btnStart.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
+$btnStart.ForeColor  = [System.Drawing.Color]::FromArgb(180, 200, 255)
+$btnStart.BackColor  = [System.Drawing.Color]::FromArgb(55, 60, 85)
+$btnStart.Cursor     = [System.Windows.Forms.Cursors]::Hand
+$btnStart.FlatAppearance.BorderSize = 0
+$btnStart.Add_Click({
+    if (-not $script:running) {
+        $script:running   = $true
+        $script:lapStart  = Get-Date
+        if (-not $script:startTime) { $script:startTime = Get-Date }
+        $btnStart.Text = "暂停"
+        $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 200, 120)
     } else {
-        [System.Drawing.Color]::FromArgb(255, 20, 26, 38)
+        $script:running     = $false
+        $script:pausedElapsed += (Get-Date) - $script:lapStart
+        $script:lapStart     = $null
+        $btnStart.Text = "开始"
+        $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(180, 200, 255)
     }
-    $e.DrawBackground()
-    $bgBrush = New-Object System.Drawing.SolidBrush($bg)
-    $e.Graphics.FillRectangle($bgBrush, $e.Bounds)
-    $bgBrush.Dispose()
+})
 
-    # 序号
-    $rankColor = [System.Drawing.Color]::FromArgb(150, 120, 130, 145)
-    $rankFont  = New-Object System.Drawing.Font("Consolas", 8)
-    $timeFont  = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
-    $rankStr = "#{0:D2}" -f ($script:laps.Count - $idx)
-    $timeStr = Format-LapTime -ts $lap
+# 将各控件加入内容面板
+[void]$contentPanel.Controls.Add($lblTotal)
+[void]$contentPanel.Controls.Add($lblClock)
+[void]$contentPanel.Controls.Add($btnLap)
+[void]$contentPanel.Controls.Add($btnPin)
+[void]$contentPanel.Controls.Add($btnStart)
 
-    $rankBrush = New-Object System.Drawing.SolidBrush($rankColor)
-    $rankSize = $e.Graphics.MeasureString($rankStr, $rankFont)
-    $rx = $e.Bounds.X + 4
-    $ry = $e.Bounds.Y + ($e.Bounds.Height - $rankSize.Height) / 2
-    $e.Graphics.DrawString($rankStr, $rankFont, $rankBrush, $rx, $ry)
+[void]$form.Controls.Add($contentPanel)
 
-    # 分隔线
-    $sepBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(50, 100, 120, 140))
-    $sepX = $rx + $rankSize.Width + 6
-    $e.Graphics.DrawLine(
-        (New-Object System.Drawing.Pen($sepBrush, 1)),
-        $sepX, $e.Bounds.Y + 4,
-        $sepX, $e.Bounds.Bottom - 4
+# ============ 详情弹窗（点击分段后展开） ============
+$detailForm = New-Object System.Windows.Forms.Form
+$detailForm.Text           = "TimerDetail"
+$detailForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+$detailForm.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
+$detailForm.TopMost         = $true
+$detailForm.ShowInTaskbar   = $false
+$detailForm.AllowTransparency = $true
+$detailForm.BackColor      = [System.Drawing.Color]::FromArgb(1, 0, 0, 0)
+$DETAIL_W = 280
+$DETAIL_H = 320
+$detailForm.Size = New-Object System.Drawing.Size($DETAIL_W, $DETAIL_H)
+
+$detailForm.Add_Load({
+    $detailForm.Region = [System.Drawing.Region]::FromHrgn(
+        [NativeMethods]::CreateRoundRectRgn(0, 0, $DETAIL_W, $DETAIL_H, 10, 10)
     )
-    $sepBrush.Dispose()
-
-    # 时间
-    $timeBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 185, 215, 245))
-    $timeX = $sepX + 8
-    $timeY = $e.Bounds.Y + ($e.Bounds.Height - $rankSize.Height) / 2
-    $e.Graphics.DrawString($timeStr, $timeFont, $timeBrush, $timeX, $timeY)
-
-    $rankBrush.Dispose()
-    $timeBrush.Dispose()
-    $rankFont.Dispose()
-    $timeFont.Dispose()
-    $e.DrawFocusRectangle()
 })
 
-function RefreshLapList {
-    $lapListBox.BeginUpdate()
-    $lapListBox.Items.Clear()
-    for ($i = 0; $i -lt $script:laps.Count; $i++) {
-        [void]$lapListBox.Items.Add($i)
+$detailForm.Add_Paint({
+    param($s, $e)
+    $g = $e.Graphics
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(200, 18, 22, 36))
+    $g.FillRectangle($brush, 0, 0, $DETAIL_W, $DETAIL_H)
+    $brush.Dispose()
+})
+
+# 详情面板跟随主窗口移动
+$form.Add_Move({
+    if ($script:expanded) {
+        $detailForm.Location = New-Object System.Drawing.Point(
+            $form.Left, ($form.Top + $form.Height + 6)
+        )
     }
-    $lapListBox.EndUpdate()
-    if ($script:laps.Count -gt 0) {
-        $last = $script:laps[0]
-    }
-}
+})
 
-[void]$lapListPanel.Controls.Add($lapListBox)
-[void]$form.Controls.Add($lapListPanel)
+# ---- 详情头部：总计时 + 当前分段时间 ----
+$detailTop = New-Object System.Windows.Forms.Panel
+$detailTop.Dock    = [System.Windows.Forms.DockStyle]::Top
+$detailTop.Height  = 60
+$detailTop.Padding = New-Object System.Windows.Forms.Padding(12, 8, 12, 4)
+$detailTop.BackColor = [System.Drawing.Color]::Transparent
 
-# ============ 窗口拖动（时钟+总计时区域） ============
-$script:winDragging = $false
-$script:winDragStart = $null
+# 总计时（大字）
+$lblDetailTotal = New-Object System.Windows.Forms.Label
+$lblDetailTotal.Dock      = [System.Windows.Forms.DockStyle]::Top
+$lblDetailTotal.Height   = 26
+$lblDetailTotal.Font      = New-Object System.Drawing.Font("Consolas", 13, [System.Drawing.FontStyle]::Bold)
+$lblDetailTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 240, 255)
+$lblDetailTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$lblDetailTotal.Text      = "00:00.0"
 
-foreach ($ctrl in @($lblClock, $lblTotal)) {
-    $ctrl.Add_MouseDown({
-        param($s, $e)
-        if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left -and -not $script:pinned) {
-            $script:winDragging = $true
-            $script:winDragStart = New-Object System.Drawing.Point($e.X, $e.Y)
-        }
-    })
-    $ctrl.Add_MouseMove({
-        param($s, $e)
-        if ($script:winDragging -and -not $script:pinned) {
-            $pt = $s.PointToScreen($e.Location)
-            $form.Location = New-Object System.Drawing.Point(
-                ($pt.X - $script:winDragStart.X),
-                ($pt.Y - $script:winDragStart.Y)
-            )
-        }
-    })
-    $ctrl.Add_MouseUp({ $script:winDragging = $false })
-}
+# 当前分段
+$lblDetailLap = New-Object System.Windows.Forms.Label
+$lblDetailLap.Dock      = [System.Windows.Forms.DockStyle]::Fill
+$lblDetailLap.Font      = New-Object System.Drawing.Font("Consolas", 10)
+$lblDetailLap.ForeColor = [System.Drawing.Color]::FromArgb(180, 200, 220)
+$lblDetailLap.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$lblDetailLap.Text      = "分段 00:00.0"
+
+[void]$detailTop.Controls.Add($lblDetailLap)
+[void]$detailTop.Controls.Add($lblDetailTotal)
+
+# ---- 操作按钮行 ----
+$detailBtnRow = New-Object System.Windows.Forms.Panel
+$detailBtnRow.Dock    = [System.Windows.Forms.DockStyle]::Top
+$detailBtnRow.Height  = 36
+$detailBtnRow.Padding = New-Object System.Windows.Forms.Padding(12, 4, 12, 4)
+$detailBtnRow.BackColor = [System.Drawing.Color]::Transparent
+
+$btnDetailStart = New-Object System.Windows.Forms.Button
+$btnDetailStart.Dock       = [System.Windows.Forms.DockStyle]::Fill
+$btnDetailStart.Text       = "开始"
+$btnDetailStart.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailStart.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
+$btnDetailStart.ForeColor  = [System.Drawing.Color]::FromArgb(180, 200, 255)
+$btnDetailStart.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
+$btnDetailStart.Cursor     = [System.Windows.Forms.Cursors]::Hand
+$btnDetailStart.FlatAppearance.BorderSize = 0
+$btnDetailStart.Add_Click($btnStart.Add_Click)  # 同步主按钮
+
+$btnDetailLap = New-Object System.Windows.Forms.Button
+$btnDetailLap.Dock       = [System.Windows.Forms.DockStyle]::Left
+$btnDetailLap.Width     = 70
+$btnDetailLap.Text       = "分段"
+$btnDetailLap.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailLap.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
+$btnDetailLap.ForeColor  = [System.Drawing.Color]::FromArgb(200, 220, 255)
+$btnDetailLap.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
+$btnDetailLap.Cursor     = [System.Windows.Forms.Cursors]::Hand
+$btnDetailLap.FlatAppearance.BorderSize = 0
+$btnDetailLap.Add_Click({
+    RecordLap
+    ToggleDetail
+})
+
+$btnDetailClose = New-Object System.Windows.Forms.Button
+$btnDetailClose.Dock       = [System.Windows.Forms.DockStyle]::Right
+$btnDetailClose.Width     = 50
+$btnDetailClose.Text       = "关闭"
+$btnDetailClose.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailClose.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
+$btnDetailClose.ForeColor  = [System.Drawing.Color]::FromArgb(200, 180, 180)
+$btnDetailClose.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
+$btnDetailClose.Cursor     = [System.Windows.Forms.Cursors]::Hand
+$btnDetailClose.FlatAppearance.BorderSize = 0
+$btnDetailClose.Add_Click({ ToggleDetail })
+
+$btnDetailReset = New-Object System.Windows.Forms.Button
+$btnDetailReset.Dock       = [System.Windows.Forms.DockStyle]::Right
+$btnDetailReset.Width     = 50
+$btnDetailReset.Text       = "清空"
+$btnDetailReset.Font       = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$btnDetailReset.FlatStyle  = [System.Windows.Forms.FlatStyle]::Flat
+$btnDetailReset.ForeColor  = [System.Drawing.Color]::FromArgb(200, 180, 180)
+$btnDetailReset.BackColor  = [System.Drawing.Color]::FromArgb(55, 65, 90)
+$btnDetailReset.Cursor     = [System.Windows.Forms.Cursors]::Hand
+$btnDetailReset.FlatAppearance.BorderSize = 0
+$btnDetailReset.Add_Click({
+    $script:running       = $false
+    $script:startTime     = $null
+    $script:pausedElapsed = [System.TimeSpan]::Zero
+    $script:laps          = @()
+    $script:lapStart      = $null
+    $lblTotal.Text        = "00:00.0"
+    $lblTotal.ForeColor   = [System.Drawing.Color]::FromArgb(255, 235, 240, 255)
+    $lblDetailTotal.Text  = "00:00.0"
+    $lblDetailTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 240, 255)
+    $lblDetailLap.Text    = "分段 00:00.0"
+    $btnStart.Text        = "开始"
+    $btnStart.ForeColor   = [System.Drawing.Color]::FromArgb(180, 200, 255)
+    $detailLapList.Items.Clear()
+    $detailForm.Hide()
+    $script:expanded = $false
+})
+
+[void]$detailBtnRow.Controls.Add($btnDetailStart)
+[void]$detailBtnRow.Controls.Add($btnDetailLap)
+[void]$detailBtnRow.Controls.Add($btnDetailClose)
+[void]$detailBtnRow.Controls.Add($btnDetailReset)
+
+# ---- 分段列表 ----
+$detailLapList = New-Object System.Windows.Forms.ListBox
+$detailLapList.Dock           = [System.Windows.Forms.DockStyle]::Fill
+$detailLapList.BackColor     = [System.Drawing.Color]::FromArgb(15, 20, 32)
+$detailLapList.ForeColor     = [System.Drawing.Color]::FromArgb(190, 205, 225)
+$detailLapList.BorderStyle   = [System.Windows.Forms.BorderStyle]::None
+$detailLapList.Font          = New-Object System.Drawing.Font("Consolas", 9)
+$detailLapList.IntegralHeight = $false
+$detailLapList.Padding       = New-Object System.Windows.Forms.Padding(4)
+
+[void]$detailForm.Controls.Add($detailLapList)
+[void]$detailForm.Controls.Add($detailBtnRow)
+[void]$detailForm.Controls.Add($detailTop)
 
 # ============ 托盘图标 ============
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-$notifyIcon.Text    = "任务栏计时器"
-$notifyIcon.Visible = $true
 
-function New-TimerIcon {
-    param([bool]$IsRunning = $false)
+function Build-TimerIcon {
+    param([bool]$Running)
     $bmp = New-Object System.Drawing.Bitmap(16, 16)
     $g   = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.Clear([System.Drawing.Color]::Transparent)
-    $c   = if ($IsRunning) { [System.Drawing.Color]::FromArgb(255, 30, 144, 255) } else { [System.Drawing.Color]::FromArgb(255, 120, 120, 120) }
-    $pen = New-Object System.Drawing.Pen($c, 1.5)
-    $g.DrawEllipse($pen, 1, 1, 14, 14)
-    $pen.Dispose()
-    $l1  = New-Object System.Drawing.Pen($c, 1.5)
-    $g.DrawLine($l1, 8, 8, 8, 3)
-    $l1.Dispose()
-    $l2  = New-Object System.Drawing.Pen(
-        $(if ($IsRunning) { [System.Drawing.Color]::White } else { [System.Drawing.Color]::FromArgb(255, 120, 120, 120) }), 1.5)
-    $g.DrawLine($l2, 8, 8, 12, 8)
-    $l2.Dispose()
-    $g.Dispose()
-    return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    $col = if ($Running) { [System.Drawing.Color]::FromArgb(255, 80, 220, 120) } else { [System.Drawing.Color]::FromArgb(255, 180, 180, 200) }
+    $pen = New-Object System.Drawing.Pen($col, 2)
+    $g.DrawEllipse($pen, 2, 2, 12, 12)
+    if ($Running) { $g.FillEllipse((New-Object System.Drawing.SolidBrush($col)), 6, 6, 4, 4) }
+    $g.Dispose(); $pen.Dispose()
+    $ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    return $ico
 }
 
-# 右键菜单
-$contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
-$menuPin = New-Object System.Windows.Forms.ToolStripMenuItem
-$menuPin.Text = "📌 固定位置"
-$menuPin.Add_Click({
-    $script:pinned = -not $script:pinned
-    if ($script:pinned) {
-        $btnPin.BackColor = [System.Drawing.Color]::FromArgb(180, 166, 227, 161)
-        $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(255, 22, 24, 36)
-        $dragBar.BackColor = [System.Drawing.Color]::FromArgb(200, 166, 227, 161)
-        $dragBar.Cursor = [System.Windows.Forms.Cursors]::No
-        $lblClock.Cursor = [System.Windows.Forms.Cursors]::Default
-        $lblTotal.Cursor = [System.Windows.Forms.Cursors]::Default
-        $menuPin.Text = "📌 取消固定"
-        $notifyIcon.ShowBalloonTip(1500,"任务栏计时器","已固定位置",[System.Windows.Forms.ToolTipIcon]::Info)
+function Format-Time {
+    param([TimeSpan]$ts)
+    if ($ts.TotalHours -ge 1) {
+        return "{0:D2}:{1:D2}:{2:D2}.{3:D1}" -f [int]$ts.TotalHours, $ts.Minutes, $ts.Seconds, [int]($ts.Milliseconds / 100)
     } else {
-        $btnPin.BackColor = [System.Drawing.Color]::FromArgb(180, 50, 55, 75)
-        $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 230, 255)
-        $dragBar.BackColor = [System.Drawing.Color]::FromArgb(180, 88, 91, 112)
-        $dragBar.Cursor = [System.Windows.Forms.Cursors]::SizeAll
-        $lblClock.Cursor = [System.Windows.Forms.Cursors]::SizeAll
-        $lblTotal.Cursor = [System.Windows.Forms.Cursors]::SizeAll
-        $menuPin.Text = "📌 固定位置"
-        $notifyIcon.ShowBalloonTip(1500,"任务栏计时器","已取消固定 - 可自由拖动",[System.Windows.Forms.ToolTipIcon]::Info)
+        return "{0:D2}:{1:D2}.{2:D1}" -f $ts.Minutes, $ts.Seconds, [int]($ts.Milliseconds / 100)
     }
-})
-$menuExit = New-Object System.Windows.Forms.ToolStripMenuItem
-$menuExit.Text = "退出"
-$menuExit.Add_Click({
-    $notifyIcon.Visible = $false
-    $form.Close()
-    $timer.Stop()
-    $timer.Dispose()
-    if ($notifyIcon.Icon) { $notifyIcon.Icon.Dispose() }
-    $notifyIcon.Dispose()
-    [System.Windows.Forms.Application]::Exit()
-})
-[void]$contextMenu.Items.Add($menuPin)
-[void]$contextMenu.Items.Add($menuExit)
-$notifyIcon.ContextMenuStrip = $contextMenu
+}
+
+function RecordLap {
+    $elapsed = $script:pausedElapsed
+    if ($script:running -and $script:lapStart) {
+        $elapsed += (Get-Date) - $script:lapStart
+    }
+    if ($elapsed -gt [System.TimeSpan]::Zero) {
+        $script:laps = @($elapsed) + $script:laps
+        if ($script:laps.Count -gt 10) { $script:laps = $script:laps[0..9] }
+        $detailLapList.BeginUpdate()
+        $detailLapList.Items.Clear()
+        for ($i = 0; $i -lt $script:laps.Count; $i++) {
+            $ts  = $script:laps[$i]
+            $gap = if ($i -eq 0) { $ts } else { $script:laps[$i-1] - $ts }
+            $txt = "#{0:D2}  {1}  (+{2})" -f ($script:laps.Count - $i), (Format-Time -ts $ts), (Format-Time -ts $gap)
+            [void]$detailLapList.Items.Add($txt)
+        }
+        $detailLapList.EndUpdate()
+    }
+}
+
+function ToggleDetail {
+    $script:expanded = -not $script:expanded
+    if ($script:expanded) {
+        # 展开：定位到主窗口下方
+        $detailForm.Location = New-Object System.Drawing.Point(
+            $form.Left, ($form.Top + $form.Height + 6)
+        )
+        $detailForm.Show()
+        # 同步按钮状态
+        if ($script:running) {
+            $btnDetailStart.Text = "暂停"
+            $btnDetailStart.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 200, 120)
+        } else {
+            $btnDetailStart.Text = "开始"
+            $btnDetailStart.ForeColor = [System.Drawing.Color]::FromArgb(180, 200, 255)
+        }
+    } else {
+        $detailForm.Hide()
+    }
+}
 
 # ============ 定时刷新 ============
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 100
+$timer.Interval = $TICK_MS
 
 $timer.Add_Tick({
-    $lblClock.Text = (Get-Date).ToString("HH:mm:ss")
+    $lblClock.Text = (Get-Date).ToString("HH:mm")
 
-    # 总时间
     $total = $script:pausedElapsed
     if ($script:running -and $script:lapStart) {
         $total += (Get-Date) - $script:lapStart
     }
     $ts = $total
-    $totalStr = if ($ts.TotalHours -ge 1) {
-        "{0:D2}:{1:D2}:{2:D2}.{3:D1}" -f [int]$ts.TotalHours, $ts.Minutes, $ts.Seconds, [int]($ts.Milliseconds / 100)
-    } else {
-        "{0:D2}:{1:D2}.{2:D1}" -f $ts.Minutes, $ts.Seconds, [int]($ts.Milliseconds / 100)
-    }
+    $totalStr = Format-Time -ts $ts
     $lblTotal.Text = $totalStr
+    $lblDetailTotal.Text = $totalStr
 
-    # 当前分段（从小数点后一位精度重置开始算）
+    # 详情分段
+    $lapStr = "分段 00:00.0"
     if ($script:running -and $script:lapStart) {
         $lapTs = (Get-Date) - $script:lapStart
-        $lapStr = if ($lapTs.TotalHours -ge 1) {
-            "{0:D2}:{1:D2}:{2:D2}.{3:D1}" -f [int]$lapTs.TotalHours, $lapTs.Minutes, $lapTs.Seconds, [int]($lapTs.Milliseconds / 100)
-        } else {
-            "{0:D2}:{1:D2}.{2:D1}" -f $lapTs.Minutes, $lapTs.Seconds, [int]($lapTs.Milliseconds / 100)
-        }
-        $lblTotal.Text = $lapStr
+        $lapStr = "分段 " + (Format-Time -ts $lapTs)
     }
+    $lblDetailLap.Text = $lapStr
 
-    # 托盘图标 + 提示文字
+    # 颜色
     if ($script:running) {
-        $notifyIcon.Icon  = New-TimerIcon -IsRunning $true
+        $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 160, 255, 180)
+        $lblDetailTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 160, 255, 180)
+        $notifyIcon.Icon  = Build-TimerIcon -Running $true
         $notifyIcon.Text = "计时中 $totalStr"
-        $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 240, 180)
     } elseif ($ts -gt [System.TimeSpan]::Zero) {
-        $notifyIcon.Icon  = New-TimerIcon -IsRunning $false
+        $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 210, 150)
+        $lblDetailTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 210, 150)
+        $notifyIcon.Icon  = Build-TimerIcon -Running $false
         $notifyIcon.Text = "已暂停 $totalStr"
-        $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 220, 160)
     } else {
-        $notifyIcon.Icon  = New-TimerIcon -IsRunning $false
-        $notifyIcon.Text = "任务栏计时器"
         $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 235, 240, 255)
+        $lblDetailTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 240, 255)
+        $notifyIcon.Icon  = Build-TimerIcon -Running $false
+        $notifyIcon.Text = "任务栏计时器"
     }
 })
 
-# ============ 启动 ============
-$notifyIcon.Icon = New-TimerIcon -IsRunning $false
-RefreshLapList
+# ============ 右键菜单 ============
+$contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 
-# 定位到右下角
+$menuPin = New-Object System.Windows.Forms.ToolStripMenuItem
+$menuPin.Text = if ($script:pinned) { "取消固定" } else { "固定位置" }
+$menuPin.Add_Click({
+    $btnPin.PerformClick()
+})
+[void]$contextMenu.Items.Add($menuPin)
+
+$menuExit = New-Object System.Windows.Forms.ToolStripMenuItem
+$menuExit.Text = "退出"
+$menuExit.Add_Click({
+    $detailForm.Close()
+    $form.Close()
+    $timer.Stop(); $timer.Dispose()
+    if ($notifyIcon.Icon) { $notifyIcon.Icon.Dispose() }
+    $notifyIcon.Dispose()
+    [System.Windows.Forms.Application]::Exit()
+})
+[void]$contextMenu.Items.Add($menuExit)
+$notifyIcon.ContextMenuStrip = $contextMenu
+
+# ============ 启动 ============
+$notifyIcon.Icon = Build-TimerIcon -Running $false
+
+# 定位到屏幕右下角
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $form.Location = New-Object System.Drawing.Point(
-    ($screen.Right - $form.Width - 10),
-    ($screen.Bottom - $form.Height - 4)
+    ($screen.Right - $STRIP_W - 10),
+    ($screen.Bottom - $STRIP_H - 4)
 )
 
 $form.Show()
+$detailForm.Hide()
 $timer.Start()
 
 [System.Windows.Forms.Application]::Run()
