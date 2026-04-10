@@ -1,4 +1,4 @@
-﻿# Taskbar Timer - 修复版
+﻿# Taskbar Timer - 同步计时版
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -19,6 +19,7 @@ $script:running = $false
 $script:pinned = $false
 $script:startTime = $null
 $script:laps = @()
+$script:lapStartTime = $null  # 当前分段的开始时间
 
 # 主窗口
 $form = New-Object System.Windows.Forms.Form
@@ -79,7 +80,6 @@ $btnClose.FlatAppearance.BorderSize = 0
 
 # 拖动
 $script:isDragging = $false
-$script:dragOffset = [System.Drawing.Point]::Empty
 $lblTitle.Add_MouseDown({
     if (-not $script:pinned -and $_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
         $script:isDragging = $true
@@ -88,7 +88,6 @@ $lblTitle.Add_MouseDown({
 })
 $lblTitle.Add_MouseMove({
     if ($script:isDragging -and -not $script:pinned) {
-        $newPos = $form.PointToClient($form.PointToScreen($_.Location))
         $form.Location = [System.Drawing.Point]::new($form.Location.X + $_.X - $script:dragOffset.X, $form.Location.Y + $_.Y - $script:dragOffset.Y)
     }
 })
@@ -115,13 +114,6 @@ $lblClock.Padding = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
 $timerPanel = New-Object System.Windows.Forms.Panel
 $timerPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
 $timerPanel.BackColor = [System.Drawing.Color]::Transparent
-
-$ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
-$mPause = New-Object System.Windows.Forms.ToolStripMenuItem("暂停")
-$mClear = New-Object System.Windows.Forms.ToolStripMenuItem("清除")
-[void]$ctxMenu.Items.Add($mPause)
-[void]$ctxMenu.Items.Add($mClear)
-$timerPanel.ContextMenuStrip = $ctxMenu
 
 # 总时间区域
 $totalBox = New-Object System.Windows.Forms.Panel
@@ -158,7 +150,7 @@ $lapBox.Padding = [System.Windows.Forms.Padding]::new(8, 6, 8, 6)
 $lblLapTitle = New-Object System.Windows.Forms.Label
 $lblLapTitle.Dock = [System.Windows.Forms.DockStyle]::Top
 $lblLapTitle.Height = 20
-$lblLapTitle.Text = "分段记录（显示每次分段时的总时间）"
+$lblLapTitle.Text = "分段记录"
 $lblLapTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8, [System.Drawing.FontStyle]::Bold)
 $lblLapTitle.ForeColor = [System.Drawing.Color]::FromArgb(180, 190, 200)
 $lblLapTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
@@ -198,12 +190,15 @@ function MakeBtn($text, $width) {
     return $b
 }
 
-$btnStart = MakeBtn "开始" 60
-$btnLap = MakeBtn "分段" 60
-$btnReset = MakeBtn "清空" 60
+$btnStart = MakeBtn "开始" 52
+$btnLap = MakeBtn "分段" 52
+$btnReset = MakeBtn "清空" 52
+$btnPause = MakeBtn "暂停" 52
+$btnPause.Visible = $false  # 开始后显示暂停
 
 [void]$btnPanel.Controls.Add($btnReset)
 [void]$btnPanel.Controls.Add($btnLap)
+[void]$btnPanel.Controls.Add($btnPause)
 [void]$btnPanel.Controls.Add($btnStart)
 
 [void]$form.Controls.Add($btnPanel)
@@ -211,68 +206,61 @@ $btnReset = MakeBtn "清空" 60
 [void]$form.Controls.Add($clockRow)
 [void]$form.Controls.Add($titleBar)
 
-# 函数定义
+# 函数
 function Start-Timer {
     $script:running = $true
     if (-not $script:startTime) {
         $script:startTime = Get-Date
+        $script:lapStartTime = Get-Date
     }
-    $btnStart.Text = "暂停"
-    $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 220, 130)
-    $btnStart.BackColor = [System.Drawing.Color]::FromArgb(70, 65, 45)
-    $mPause.Text = "暂停"
+    $btnStart.Visible = $false
+    $btnPause.Visible = $true
+    $btnPause.Text = "暂停"
 }
 
 function Stop-Timer {
     $script:running = $false
-    $btnStart.Text = "开始"
-    $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
-    $btnStart.BackColor = [System.Drawing.Color]::FromArgb(50, 55, 80)
-    $mPause.Text = "开始"
+    $btnStart.Text = "继续"
+    $btnStart.Visible = $true
+    $btnPause.Visible = $false
 }
 
-$btnStart.Add_Click({
-    if ($script:running) {
-        Stop-Timer
-    } else {
-        Start-Timer
-    }
-})
+# 按钮事件
+$btnStart.Add_Click({ Start-Timer })
 
-$mPause.Add_Click({
-    if ($script:running) {
-        Stop-Timer
-    } else {
-        Start-Timer
-    }
+$btnPause.Add_Click({
+    if ($script:running) { Stop-Timer } else { Start-Timer }
 })
 
 $btnLap.Add_Click({
-    if ($script:startTime) {
-        $elapsed = (Get-Date) - $script:startTime
-        $totalStr = $elapsed.ToString("mm\:ss\.f")
+    if ($script:startTime -and $script:running) {
+        # 记录当前总时间
+        $totalElapsed = (Get-Date) - $script:startTime
+        $totalStr = $totalElapsed.ToString("mm\:ss\.f")
+        
+        # 同步计时：每段独立计时，从分段时刻开始重新计
+        $script:lapStartTime = Get-Date
+        
+        # 添加到列表
         $script:laps = @($totalStr) + $script:laps
-        if ($script:laps.Count -gt 20) {
-            $script:laps = $script:laps[0..19]
-        }
+        if ($script:laps.Count -gt 20) { $script:laps = $script:laps[0..19] }
+        
         $lapList.Items.Clear()
-        foreach ($l in $script:laps) {
-            [void]$lapList.Items.Add($l)
-        }
+        foreach ($l in $script:laps) { [void]$lapList.Items.Add($l) }
     }
 })
 
 $btnReset.Add_Click({
     $script:running = $false
     $script:startTime = $null
+    $script:lapStartTime = $null
     $script:laps = @()
     $lblTotal.Text = "00:00.0"
     $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 160, 255)
     $lapList.Items.Clear()
     $btnStart.Text = "开始"
-    $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
-    $btnStart.BackColor = [System.Drawing.Color]::FromArgb(50, 55, 80)
-    $mPause.Text = "开始"
+    $btnStart.Visible = $true
+    $btnPause.Visible = $false
 })
 
 $btnPin.Add_Click({
@@ -296,10 +284,6 @@ $btnClose.Add_Click({
     [System.Windows.Forms.Application]::Exit()
 })
 
-$mClear.Add_Click({
-    $btnReset.PerformClick()
-})
-
 # 定时器
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 100
@@ -315,6 +299,16 @@ $timer.Add_Tick({
         }
     }
 })
+
+# 右键菜单
+$ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$mPause = New-Object System.Windows.Forms.ToolStripMenuItem("暂停")
+$mPause.Add_Click({ if ($script:running) { Stop-Timer } else { Start-Timer } })
+$mClear = New-Object System.Windows.Forms.ToolStripMenuItem("清除")
+$mClear.Add_Click({ $btnReset.PerformClick() })
+[void]$ctxMenu.Items.Add($mPause)
+[void]$ctxMenu.Items.Add($mClear)
+$timerPanel.ContextMenuStrip = $ctxMenu
 
 # 图标
 $bmp = New-Object System.Drawing.Bitmap(16, 16)
@@ -332,18 +326,11 @@ $notifyIcon.Text = "任务栏计时器"
 
 $trayCtx = New-Object System.Windows.Forms.ContextMenuStrip
 $mShow = New-Object System.Windows.Forms.ToolStripMenuItem("显示窗口")
-$mShow.Add_Click({
-    $form.Show()
-    $form.Activate()
-})
+$mShow.Add_Click({ $form.Show(); $form.Activate() })
 $mPin = New-Object System.Windows.Forms.ToolStripMenuItem("固定位置")
-$mPin.Add_Click({
-    $btnPin.PerformClick()
-})
+$mPin.Add_Click({ $btnPin.PerformClick() })
 $mExit = New-Object System.Windows.Forms.ToolStripMenuItem("退出")
-$mExit.Add_Click({
-    $btnClose.PerformClick()
-})
+$mExit.Add_Click({ $btnClose.PerformClick() })
 [void]$trayCtx.Items.Add($mShow)
 [void]$trayCtx.Items.Add($mPin)
 [void]$trayCtx.Items.Add($mExit)
