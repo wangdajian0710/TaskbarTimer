@@ -1,4 +1,4 @@
-﻿# Taskbar Timer - 直观展示版
+﻿# Taskbar Timer - 分段显示总时间版
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -26,7 +26,7 @@ public class Win32Forms {
 
 $script:running = $false; $script:pinned = $false
 $script:startTime = $null; $script:pausedElapsed = [TimeSpan]::Zero
-$script:laps = @(); $script:lapStart = $null; $script:lastLapTime = [TimeSpan]::Zero
+$script:laps = @()
 
 # 主窗口
 $form = New-Object System.Windows.Forms.Form
@@ -99,7 +99,7 @@ $lblClock.Text = "HH:MM"
 $lblClock.Padding = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
 [void]$clockRow.Controls.Add($lblClock)
 
-# 计时显示区 - 分成两个清晰的区域
+# 计时显示区
 $timerPanel = New-Object System.Windows.Forms.Panel
 $timerPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
 $timerPanel.BackColor = [System.Drawing.Color]::Transparent
@@ -138,43 +138,33 @@ $lblTotal.Text = "00:00.0"
 [void]$totalBox.Controls.Add($lblTotal)
 [void]$totalBox.Controls.Add($lblTotalTitle)
 
-# 当前分段区域（绿色背景框）
+# 分段记录区域（白色/浅色背景，显示每次分段时的总时间）
 $lapBox = New-Object System.Windows.Forms.Panel
 $lapBox.Location = New-Object System.Drawing.Point(12, 86)
-$lapBox.Size = New-Object System.Drawing.Size(($W - 24), 70)
-$lapBox.BackColor = [System.Drawing.Color]::FromArgb(60, 40, 100, 60)
-$lapBox.Padding = [System.Windows.Forms.Padding]::new(10, 8, 10, 8)
+$lapBox.Size = New-Object System.Drawing.Size(($W - 24), 114)
+$lapBox.BackColor = [System.Drawing.Color]::FromArgb(80, 25, 28, 35)
+$lapBox.Padding = [System.Windows.Forms.Padding]::new(8, 6, 8, 6)
 
 $lblLapTitle = New-Object System.Windows.Forms.Label
 $lblLapTitle.Dock = [System.Windows.Forms.DockStyle]::Top
-$lblLapTitle.Height = 18
-$lblLapTitle.Text = "当前分段"
-$lblLapTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
-$lblLapTitle.ForeColor = [System.Drawing.Color]::FromArgb(200, 150, 220, 150)
+$lblLapTitle.Height = 20
+$lblLapTitle.Text = "分段记录（显示每次分段时的总时间）"
+$lblLapTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8, [System.Drawing.FontStyle]::Bold)
+$lblLapTitle.ForeColor = [System.Drawing.Color]::FromArgb(180, 190, 200)
 $lblLapTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 
-$lblLap = New-Object System.Windows.Forms.Label
-$lblLap.Dock = [System.Windows.Forms.DockStyle]::Fill
-$lblLap.Font = New-Object System.Drawing.Font("Consolas", 32, [System.Drawing.FontStyle]::Bold)
-$lblLap.ForeColor = [System.Drawing.Color]::FromArgb(255, 150, 220, 150)
-$lblLap.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$lblLap.Text = "00:00.0"
-
-[void]$lapBox.Controls.Add($lblLap)
-[void]$lapBox.Controls.Add($lblLapTitle)
-
-# 分段列表
 $lapList = New-Object System.Windows.Forms.ListBox
-$lapList.Location = New-Object System.Drawing.Point(12, 162)
-$lapList.Size = New-Object System.Drawing.Size(($W - 24), 68)
-$lapList.BackColor = [System.Drawing.Color]::FromArgb(40, 20, 22, 35)
-$lapList.ForeColor = [System.Drawing.Color]::FromArgb(180, 195, 220)
+$lapList.Dock = [System.Windows.Forms.DockStyle]::Fill
+$lapList.BackColor = [System.Drawing.Color]::FromArgb(40, 30, 35, 45)
+$lapList.ForeColor = [System.Drawing.Color]::FromArgb(220, 255, 255, 255)
 $lapList.BorderStyle = [System.Windows.Forms.BorderStyle]::None
-$lapList.Font = New-Object System.Drawing.Font("Consolas", 9)
+$lapList.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+
+[void]$lapBox.Controls.Add($lapList)
+[void]$lapBox.Controls.Add($lblLapTitle)
 
 [void]$timerPanel.Controls.Add($totalBox)
 [void]$timerPanel.Controls.Add($lapBox)
-[void]$timerPanel.Controls.Add($lapList)
 
 # 按钮区
 $btnPanel = New-Object System.Windows.Forms.Panel
@@ -221,7 +211,7 @@ $timer.Interval = 100
 $timer.Add_Tick({
     $lblClock.Text = (Get-Date).ToString("HH:mm")
     
-    # 总时间
+    # 总时间 - 实时更新
     if ($script:startTime) {
         $elapsed = $script:pausedElapsed + (Get-Date) - $script:startTime
         $lblTotal.Text = $elapsed.ToString("mm\:ss\.f")
@@ -229,35 +219,17 @@ $timer.Add_Tick({
             $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 200, 100)
         }
     }
-    
-    # 当前分段
-    $lapElapsed = [TimeSpan]::Zero
-    if ($script:running -and $script:lapStart) {
-        $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
-    } else {
-        $lapElapsed = $script:lastLapTime
-    }
-    $lblLap.Text = $lapElapsed.ToString("mm\:ss\.f")
 })
 
 function ToggleTimer {
     if (-not $script:running) {
         $script:running = $true
-        if (-not $script:startTime) { 
-            $script:startTime = Get-Date 
-            $script:lapStart = Get-Date
-        } elseif (-not $script:lapStart) {
-            $script:lapStart = Get-Date
-        }
+        if (-not $script:startTime) { $script:startTime = Get-Date }
         $btnStart.Text = "暂停"
         $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 220, 130)
         $btnStart.BackColor = [System.Drawing.Color]::FromArgb(70, 65, 45)
         $mPause.Text = "暂停"
     } else {
-        if ($script:lapStart) {
-            $script:lastLapTime += (Get-Date) - $script:lapStart
-            $script:lapStart = $null
-        }
         $script:running = $false
         $btnStart.Text = "开始"
         $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
@@ -267,35 +239,24 @@ function ToggleTimer {
 }
 
 function RecordLap {
-    $lapElapsed = [TimeSpan]::Zero
-    if ($script:running -and $script:lapStart) {
-        $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
-    } else {
-        $lapElapsed = $script:lastLapTime
-    }
+    # 记录当前总时间
+    $total = if ($script:startTime) { $script:pausedElapsed + (Get-Date) - $script:startTime } else { [TimeSpan]::Zero }
+    $totalStr = $total.ToString("mm\:ss\.f")
     
-    $total = if ($script:startTime) { $script:pausedElapsed + (Get-Date) - $script:startTime } else { $script:pausedElapsed }
-    
-    $lapStr = $lapElapsed.ToString("mm\:ss\.f")
-    $script:laps = @("$($total.ToString('mm\:ss\.f')) [+$lapStr]") + $script:laps
+    # 添加到列表（最新在前）
+    $script:laps = @($totalStr) + $script:laps
     if ($script:laps.Count -gt 20) { $script:laps = $script:laps[0..19] }
     
+    # 更新列表显示
     $lapList.Items.Clear()
     foreach ($l in $script:laps) { [void]$lapList.Items.Add($l) }
-    
-    $script:lastLapTime = [TimeSpan]::Zero
-    if ($script:running) {
-        $script:lapStart = Get-Date
-    }
 }
 
 function ResetAll {
     $script:running = $false; $script:startTime = $null
     $script:pausedElapsed = [TimeSpan]::Zero; $script:laps = @()
-    $script:lapStart = $null; $script:lastLapTime = [TimeSpan]::Zero
     $lblTotal.Text = "00:00.0"
     $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 160, 255)
-    $lblLap.Text = "00:00.0"
     $lapList.Items.Clear()
     $btnStart.Text = "开始"
     $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
