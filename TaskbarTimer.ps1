@@ -1,4 +1,4 @@
-﻿# Taskbar Timer - 完整展示版（分段后继续计时+右键菜单）
+﻿# Taskbar Timer - 分段继续计时版
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -42,7 +42,7 @@ $form.Add_Load({
 })
 $form.Add_Shown({ $null = [Win32Forms]::SetLayeredWindowAttributes($form.Handle, 0, 235, [Win32Forms]::LWA_ALPHA) })
 
-# 拖动条（标题栏）
+# 标题栏
 $titleBar = New-Object System.Windows.Forms.Panel
 $titleBar.Dock = [System.Windows.Forms.DockStyle]::Top
 $titleBar.Height = 28
@@ -105,7 +105,6 @@ $timerPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
 $timerPanel.BackColor = [System.Drawing.Color]::Transparent
 $timerPanel.ContextMenuStrip = $null
 
-# 右键菜单
 $ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $mPause = New-Object System.Windows.Forms.ToolStripMenuItem("暂停")
 $mPause.Add_Click({ ToggleTimer })
@@ -115,7 +114,7 @@ $mClear.Add_Click({ ResetAll })
 [void]$ctxMenu.Items.Add($mClear)
 $timerPanel.ContextMenuStrip = $ctxMenu
 
-# 总计时（大字）
+# 总计时
 $lblTotal = New-Object System.Windows.Forms.Label
 $lblTotal.Location = New-Object System.Drawing.Point(12, 8)
 $lblTotal.Size = New-Object System.Drawing.Size(($W - 24), 52)
@@ -124,7 +123,7 @@ $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 245, 255)
 $lblTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTotal.Text = "00:00.0"
 
-# 当前分段（小字）
+# 当前分段
 $lblLap = New-Object System.Windows.Forms.Label
 $lblLap.Location = New-Object System.Drawing.Point(12, 62)
 $lblLap.Size = New-Object System.Drawing.Size(($W - 24), 22)
@@ -185,34 +184,51 @@ $btnReset.Add_Click({ ResetAll })
 [void]$form.Controls.Add($clockRow)
 [void]$form.Controls.Add($titleBar)
 
-# 定时器
+# 定时器 - 始终更新显示（暂停时也显示当前值）
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 100
 $timer.Add_Tick({
     $lblClock.Text = (Get-Date).ToString("HH:mm")
-    if ($script:running) {
+    
+    # 总是计算并显示总时间
+    if ($script:startTime) {
         $elapsed = $script:pausedElapsed + (Get-Date) - $script:startTime
         $ts = $elapsed.ToString("mm\:ss\.f")
         $lblTotal.Text = $ts
-        $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 210, 130)
-        
-        # 当前分段：上次分段到现在的间隔
-        $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
-        $lblLap.Text = "分段 " + $lapElapsed.ToString("mm\:ss\.f")
+        if ($script:running) {
+            $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 210, 130)
+        } else {
+            $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 210, 220)
+        }
     }
+    
+    # 总是计算并显示分段时间（即使暂停也显示暂停时的值）
+    $lapElapsed = [TimeSpan]::Zero
+    if ($script:running -and $script:lapStart) {
+        $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
+    } else {
+        $lapElapsed = $script:lastLapTime
+    }
+    $lblLap.Text = "分段 " + $lapElapsed.ToString("mm\:ss\.f")
 })
 
 function ToggleTimer {
     if (-not $script:running) {
+        # 开始/继续
         $script:running = $true
-        if (-not $script:startTime) { $script:startTime = Get-Date }
-        if (-not $script:lapStart) { $script:lapStart = Get-Date }
+        if (-not $script:startTime) { 
+            $script:startTime = Get-Date 
+            $script:lapStart = Get-Date
+        } elseif (-not $script:lapStart) {
+            # 恢复时继续分段计时
+            $script:lapStart = Get-Date
+        }
         $btnStart.Text = "暂停"
         $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 220, 130)
         $btnStart.BackColor = [System.Drawing.Color]::FromArgb(70, 65, 45)
         $mPause.Text = "暂停"
     } else {
-        # 暂停时累计上次分段的时间
+        # 暂停
         if ($script:lapStart) {
             $script:lastLapTime += (Get-Date) - $script:lapStart
             $script:lapStart = $null
@@ -222,12 +238,11 @@ function ToggleTimer {
         $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
         $btnStart.BackColor = [System.Drawing.Color]::FromArgb(50, 55, 80)
         $mPause.Text = "开始"
-        $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 245, 255)
     }
 }
 
 function RecordLap {
-    # 计算当前分段时长（上次分段到现在的间隔）
+    # 计算当前分段时长
     $lapElapsed = [TimeSpan]::Zero
     if ($script:running -and $script:lapStart) {
         $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
@@ -237,7 +252,6 @@ function RecordLap {
     
     $total = if ($script:startTime) { $script:pausedElapsed + (Get-Date) - $script:startTime } else { $script:pausedElapsed }
     
-    # 记录分段：总时间 [+本次分段时长]
     $lapStr = $lapElapsed.ToString("mm\:ss\.f")
     $script:laps = @("$($total.ToString('mm\:ss\.f')) [+$lapStr]") + $script:laps
     if ($script:laps.Count -gt 20) { $script:laps = $script:laps[0..19] }
@@ -245,7 +259,7 @@ function RecordLap {
     $lapList.Items.Clear()
     foreach ($l in $script:laps) { [void]$lapList.Items.Add($l) }
     
-    # 重置当前分段计时，继续计时
+    # 重置当前分段，继续计时
     $script:lastLapTime = [TimeSpan]::Zero
     if ($script:running) {
         $script:lapStart = Get-Date
