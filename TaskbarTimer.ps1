@@ -1,278 +1,441 @@
-﻿Add-Type -AssemblyName System.Windows.Forms
-Add-Type System.Drawing
+﻿# Taskbar Timer - 中文版 (修复PS5.1兼容性)
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
-$W = 420
-$H = 100
+# 常量 - 不用 $script: 避免PS5.1数组bug
+$W = 340
+$H_MAIN = 78
 
-$form = New-Object System.Windows.Forms.Form
-$form.ClientSize = New-Object System.Drawing.Size($W, $H)
-$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
-$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-$form.TopMost = $true
-$form.ShowInTaskbar = $false
-$form.BackColor = [System.Drawing.Color]::White
-
-# Top bar
-$top = New-Object System.Windows.Forms.Panel
-$top.Location = New-Object System.Drawing.Point(0, 0)
-$top.Size = New-Object System.Drawing.Size($W, 30)
-$top.BackColor = [System.Drawing.Color]::DodgerBlue
-
-$lblT = New-Object System.Windows.Forms.Label
-$lblT.Location = New-Object System.Drawing.Point(10, 0)
-$lblT.Size = New-Object System.Drawing.Size(350, 30)
-$lblT.Text = "  Taskbar Timer  (drag here)"
-$lblT.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
-$lblT.ForeColor = [System.Drawing.Color]::White
-$lblT.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-
-$btnX = New-Object System.Windows.Forms.Button
-$btnX.Location = New-Object System.Drawing.Point($W - 30, 0)
-$btnX.Size = New-Object System.Drawing.Size(30, 30)
-$btnX.Text = "X"
-$btnX.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$btnX.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$btnX.BackColor = [System.Drawing.Color]::Red
-$btnX.ForeColor = [System.Drawing.Color]::White
-$btnX.FlatAppearance.BorderSize = 0
-
-# Timer display
-$lblTimer = New-Object System.Windows.Forms.Label
-$lblTimer.Location = New-Object System.Drawing.Point(15, 35)
-$lblTimer.Size = New-Object System.Drawing.Size(200, 55)
-$lblTimer.Font = New-Object System.Drawing.Font("Consolas", 32, [System.Drawing.FontStyle]::Bold)
-$lblTimer.ForeColor = [System.Drawing.Color]::Black
-$lblTimer.BackColor = [System.Drawing.Color]::WhiteSmoke
-$lblTimer.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-$lblTimer.Text = "00:00.0"
-$lblTimer.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-# Buttons
-function MkBtn($text, $x, $bg) {
-    $b = New-Object System.Windows.Forms.Button
-    $b.Location = New-Object System.Drawing.Point($x, 38)
-    $b.Size = New-Object System.Drawing.Size(55, 45)
-    $b.Text = $text
-    $b.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
-    $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-    $b.BackColor = $bg
-    $b.ForeColor = [System.Drawing.Color]::White
-    $b.FlatAppearance.BorderSize = 0
-    $b.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::LightGray
-    return $b
-}
-
-$btnStart = MkBtn "Start" 230 [System.Drawing.Color]::Green
-$btnSplit = MkBtn "Split" 295 [System.Drawing.Color]::Orange
-$btnClear = MkBtn "Clear" 360 [System.Drawing.Color]::DarkRed
-
-[void]$form.Controls.AddRange(@($top, $lblT, $btnX, $lblTimer, $btnStart, $btnSplit, $btnClear))
-
-# Drag
-$drag = $false; $dOff = $null
-$lblT.Add_MouseDown({ param($s,$e) if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { $script:drag=$true; $script:dOff=$e.Location } })
-$lblT.Add_MouseMove({ param($s,$e) if ($script:drag) { $form.Location = [System.Drawing.Point]::new($form.Location.X+$e.X-$script:dOff.X, $form.Location.Y+$e.Y-$script:dOff.Y) } })
-$lblT.Add_MouseUp({ $script:drag=$false })
-
-# State
-$script:st = @{ Start=$null; Pause=$null; Paused=0; On=$false }
-$script:segs = [System.Collections.ArrayList]::new()
-$script:segCtrls = @{}
-$script:nid = 1
+# ===== State =====
+$script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
+$script:segments = [System.Collections.ArrayList]::new()
+$script:nextId = 1
 $script:pinned = $false
+$script:segCtrls = @{}
 
-function Elapsed($s) {
-    if (-not $s.Start) { return [TimeSpan]::Zero }
-    $end = if ($s.Pause) { $s.Pause } else { Get-Date }
-    return [TimeSpan]::FromMilliseconds([Math]::Max(0, ($end - $s.Start).TotalMilliseconds - $s.Paused))
+function Get-Elapsed($s) {
+    if (-not $s.StartTime) { return [TimeSpan]::Zero }
+    $end = if ($s.PausedAt) { $s.PausedAt } else { Get-Date }
+    return [TimeSpan]::FromMilliseconds([Math]::Max(0, ($end - $s.StartTime).TotalMilliseconds - $s.TotalPausedMs))
 }
 function Fmt($ts) {
     if ($ts.TotalHours -ge 1) { return $ts.ToString("hh\:mm\:ss\.f") }
     return $ts.ToString("mm\:ss\.f")
 }
 
-# Segment panel
-$segP = New-Object System.Windows.Forms.Panel
-$segP.Location = New-Object System.Drawing.Point(0, 100)
-$segP.Size = New-Object System.Drawing.Size($W, 0)
-$segP.BackColor = [System.Drawing.Color]::LightGray
-$segP.Visible = $false
-$form.Controls.Add($segP)
+# ===== Form =====
+$form = New-Object System.Windows.Forms.Form
+$form.Size = New-Object System.Drawing.Size($W, 90)
+$form.MinimumSize = New-Object System.Drawing.Size($W, 90)
+$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+$form.TopMost = $true
+$form.ShowInTaskbar = $false
+$form.BackColor = [System.Drawing.Color]::FromArgb(20, 22, 35)
 
-function MkSegRow($seg) {
+# ===== Title Bar =====
+$titleBar = New-Object System.Windows.Forms.Panel
+$titleBar.Dock = [System.Windows.Forms.DockStyle]::Top
+$titleBar.Height = 26
+$titleBar.BackColor = [System.Drawing.Color]::FromArgb(30, 34, 55)
+
+$lblTitle = New-Object System.Windows.Forms.Label
+$lblTitle.Dock = [System.Windows.Forms.DockStyle]::Fill
+$lblTitle.Text = "  >> Taskbar Timer"
+$lblTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 190)
+$lblTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$lblTitle.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+
+$btnPin = New-Object System.Windows.Forms.Button
+$btnPin.Dock = [System.Windows.Forms.DockStyle]::Right; $btnPin.Width = 28
+$btnPin.Text = "Pin"
+$btnPin.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+$btnPin.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnPin.ForeColor = [System.Drawing.Color]::FromArgb(120, 130, 160)
+$btnPin.BackColor = [System.Drawing.Color]::Transparent
+$btnPin.FlatAppearance.BorderSize = 0
+
+$btnClose = New-Object System.Windows.Forms.Button
+$btnClose.Dock = [System.Windows.Forms.DockStyle]::Right; $btnClose.Width = 28
+$btnClose.Text = "X"
+$btnClose.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnClose.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnClose.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 180)
+$btnClose.BackColor = [System.Drawing.Color]::Transparent
+$btnClose.FlatAppearance.BorderSize = 0
+
+[void]$titleBar.Controls.AddRange(@($lblTitle, $btnPin, $btnClose))
+
+# Drag
+$script:isDrag = $false
+$lblTitle.Add_MouseDown({ param($s,$e)
+    if (-not $script:pinned -and $e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+        $script:isDrag = $true; $script:dOff = $e.Location }
+})
+$lblTitle.Add_MouseMove({ param($s,$e)
+    if ($script:isDrag -and -not $script:pinned) {
+        $form.Location = [System.Drawing.Point]::new($form.Location.X + $e.X - $script:dOff.X, $form.Location.Y + $e.Y - $script:dOff.Y) }
+})
+$lblTitle.Add_MouseUp({ $script:isDrag = $false })
+
+# ===== Timer Bar =====
+$tBar = New-Object System.Windows.Forms.Panel
+$tBar.Dock = [System.Windows.Forms.DockStyle]::Top
+$tBar.Height = 52
+$tBar.BackColor = [System.Drawing.Color]::FromArgb(25, 28, 42)
+$tBar.Padding = [System.Windows.Forms.Padding]::new(10, 0, 10, 0)
+
+# Drag handle
+$dragH = New-Object System.Windows.Forms.Panel
+$dragH.Size = New-Object System.Drawing.Size(6, 20)
+$dragH.BackColor = [System.Drawing.Color]::FromArgb(80, 85, 100)
+$dragH.Location = New-Object System.Drawing.Point(4, 16)
+$dragH.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+
+# Current time box
+$curBox = New-Object System.Windows.Forms.Panel
+$curBox.Location = New-Object System.Drawing.Point(18, 8)
+$curBox.Size = New-Object System.Drawing.Size(140, 36)
+$curBox.BackColor = [System.Drawing.Color]::FromArgb(28, 44, 58)
+$curBox.Padding = [System.Windows.Forms.Padding]::new(8, 4, 8, 4)
+
+$lblCL = New-Object System.Windows.Forms.Label
+$lblCL.Dock = [System.Windows.Forms.DockStyle]::Left; $lblCL.Width = 32
+$lblCL.Text = [string][char]0x5F53 + [string][char]0x524D
+$lblCL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$lblCL.ForeColor = [System.Drawing.Color]::FromArgb(110, 120, 190)
+$lblCL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+
+$lblCur = New-Object System.Windows.Forms.Label
+$lblCur.Dock = [System.Windows.Forms.DockStyle]::Fill
+$lblCur.Font = New-Object System.Drawing.Font("Consolas", 22, [System.Drawing.FontStyle]::Bold)
+$lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
+$lblCur.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$lblCur.Text = "00:00.0"
+
+[void]$curBox.Controls.AddRange(@($lblCL, $lblCur))
+
+# Clock
+$lblClock = New-Object System.Windows.Forms.Label
+$lblClock.Location = New-Object System.Drawing.Point(166, 18)
+$lblClock.Font = New-Object System.Drawing.Font("Consolas", 10)
+$lblClock.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 120)
+$lblClock.Text = "HH:MM"
+
+# Buttons
+function MkBtn($t, $x, $c) {
+    $b = New-Object System.Windows.Forms.Button
+    $b.Location = New-Object System.Drawing.Point($x, 10)
+    $b.Size = New-Object System.Drawing.Size(42, 32)
+    $b.Text = $t
+    $b.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
+    $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $b.ForeColor = $c
+    $b.BackColor = [System.Drawing.Color]::FromArgb(35, 40, 60)
+    $b.FlatAppearance.BorderSize = 0
+    $b.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(50, 55, 80)
+    return $b
+}
+
+$btnS = MkBtn ([string][char]0x5F00 + [string][char]0x59CB) 220 ([System.Drawing.Color]::FromArgb(200, 136, 255, 136))
+$btnL = MkBtn ([string][char]0x5206 + [string][char]0x6BB5) 268 ([System.Drawing.Color]::FromArgb(200, 136, 136, 255))
+$btnC = MkBtn ([string][char]0x6E05 + [string][char]0x7A7A) 316 ([System.Drawing.Color]::FromArgb(200, 255, 136, 136))
+
+[void]$tBar.Controls.AddRange(@($dragH, $curBox, $lblClock, $btnS, $btnL, $btnC))
+
+# ===== Segment Panel =====
+$segPanel = New-Object System.Windows.Forms.Panel
+$segPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
+$segPanel.BackColor = [System.Drawing.Color]::FromArgb(16, 17, 34)
+$segPanel.AutoScroll = $true
+$segPanel.Visible = $false
+
+[void]$form.Controls.AddRange(@($segPanel, $tBar, $titleBar))
+
+# ===== Build Segment Row =====
+function New-Row($seg) {
     $row = New-Object System.Windows.Forms.Panel
-    $row.Size = New-Object System.Drawing.Size($W, 40)
-    $row.BackColor = [System.Drawing.Color]::WhiteSmoke
+    $row.Height = 42
+    $row.Dock = [System.Windows.Forms.DockStyle]::Top
+    $row.BackColor = [System.Drawing.Color]::FromArgb(22, 24, 38)
+    $row.Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 1)
 
     $nL = New-Object System.Windows.Forms.Label
-    $nL.Location = New-Object System.Drawing.Point(5, 0); $nL.Size = New-Object System.Drawing.Size(30, 40)
-    $nL.Text = "#$($seg.Id)"; $nL.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $nL.Location = New-Object System.Drawing.Point(6, 0)
+    $nL.Size = New-Object System.Drawing.Size(24, 42)
+    $nL.Text = "#$($seg.Id)"
+    $nL.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $nL.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 100)
     $nL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 
     $tL = New-Object System.Windows.Forms.Label
-    $tL.Location = New-Object System.Drawing.Point(35, 2); $tL.Size = New-Object System.Drawing.Size(100, 36)
-    $tL.Font = New-Object System.Drawing.Font("Consolas", 18, [System.Drawing.FontStyle]::Bold)
-    $tL.ForeColor = [System.Drawing.Color]::Red
-    $tL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft; $tL.Text = "00:00.0"
+    $tL.Location = New-Object System.Drawing.Point(30, 2)
+    $tL.Size = New-Object System.Drawing.Size(100, 22)
+    $tL.Font = New-Object System.Drawing.Font("Consolas", 15, [System.Drawing.FontStyle]::Bold)
+    $tL.ForeColor = [System.Drawing.Color]::FromArgb(255, 68, 68)
+    $tL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $tL.Text = "00:00.0"
 
     $sL = New-Object System.Windows.Forms.Label
-    $sL.Location = New-Object System.Drawing.Point(140, 8); $sL.Size = New-Object System.Drawing.Size(80, 24)
-    $sL.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-    $sL.ForeColor = [System.Drawing.Color]::Gray; $sL.Text = "running..."
+    $sL.Location = New-Object System.Drawing.Point(30, 24)
+    $sL.Size = New-Object System.Drawing.Size(100, 16)
+    $sL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8)
+    $sL.ForeColor = [System.Drawing.Color]::FromArgb(150, 60, 60)
+    $sL.Text = [string][char]0x25CF + " " + [string][char]0x8BA1 + [string][char]0x65F6 + [string][char]0x4E2D + "..."
 
-    function MkSB($txt, $x, $bg, $act) {
+    function MkSb($t, $x, $c, $act) {
         $b = New-Object System.Windows.Forms.Button
-        $b.Size = New-Object System.Drawing.Size(38, 30); $b.Location = New-Object System.Drawing.Point($x, 5)
-        $b.Text = $txt; $b.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+        $b.Size = New-Object System.Drawing.Size(26, 26)
+        $b.Location = New-Object System.Drawing.Point($x, 8)
+        $b.Text = $t
+        $b.Font = New-Object System.Drawing.Font("Segoe UI Symbol", 10)
         $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-        $b.BackColor = $bg; $b.ForeColor = [System.Drawing.Color]::White
-        $b.FlatAppearance.BorderSize = 1; $b.Tag = $seg.Id
-        $b.Add_Click({ param($sn,$ev)
+        $b.ForeColor = $c
+        $b.BackColor = [System.Drawing.Color]::FromArgb(30, 34, 48)
+        $b.FlatAppearance.BorderSize = 0
+        $b.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(45, 48, 68)
+        $b.Tag = $seg.Id
+        $b.Add_Click({ param($sender, $e)
+            $id = $sender.Tag
             switch ($act) {
-                "toggle" { Toggle-Seg $sn.Tag }
-                "promote" { Promote-Seg $sn.Tag }
-                "remove" { Remove-Seg $sn.Tag }
+                "toggle"  { Do-Toggle $id }
+                "promote" { Do-Promote $id }
+                "remove"  { Do-Remove $id }
             }
         })
         return $b
     }
-    $b1 = MkSB "||" 230 [System.Drawing.Color]::SteelBlue "toggle"
-    $b2 = MkSB "^" 275 [System.Drawing.Color]::MediumSeaGreen "promote"
-    $b3 = MkSB "X" 320 [System.Drawing.Color]::IndianRed "remove"
 
-    [void]$row.Controls.AddRange(@($nL,$tL,$sL,$b1,$b2,$b3))
-    $script:segCtrls[$seg.Id] = @{ Row=$row; TL=$tL; SL=$sL; PB=$b1 }
+    # 用ASCII替代代理对emoji: || 代替 ⏸, ^ 代替 ⬆, X 代替 ✕
+    $bP = MkSb "||" 254 ([System.Drawing.Color]::FromArgb(170, 170, 200)) "toggle"
+    $bU = MkSb "^" 284 ([System.Drawing.Color]::FromArgb(170, 170, 200)) "promote"
+    $bD = MkSb "X" 314 ([System.Drawing.Color]::FromArgb(170, 100, 100)) "remove"
+
+    [void]$row.Controls.AddRange(@($nL, $tL, $sL, $bP, $bU, $bD))
+    $script:segCtrls[$seg.Id] = @{ Row=$row; TL=$tL; SL=$sL; PB=$bP }
     return $row
 }
 
-function Rebuild-SegUI {
+function Rebuild-UI {
     foreach ($k in @($script:segCtrls.Keys)) {
         $c = $script:segCtrls[$k]
         if ($c.Row.Parent) { $c.Row.Parent.Controls.Remove($c.Row) }
         $c.Row.Dispose()
     }
     $script:segCtrls.Clear()
-    if ($script:segs.Count -eq 0) {
-        $segP.Visible = $false
-        $form.ClientSize = New-Object System.Drawing.Size($W, $H)
+    if ($script:segments.Count -eq 0) {
+        $segPanel.Visible = $false
+        $form.ClientSize = New-Object System.Drawing.Size($W, $H_MAIN)
     } else {
-        $segP.Visible = $true
-        foreach ($sg in $script:segs) { [void]$segP.Controls.Add((MkSegRow $sg)) }
-        $sh = $script:segs.Count * 40
-        $segP.Size = New-Object System.Drawing.Size($W, $sh)
-        $th = $H + $sh
+        $segPanel.Visible = $true
+        foreach ($seg in $script:segments) { [void]$segPanel.Controls.Add((New-Row $seg)) }
+        $h = $H_MAIN + ($script:segments.Count * 42) + 4
         $scr = [System.Windows.Forms.Screen]::FromControl($form).WorkingArea
-        if ($th -gt $scr.Height - 40) { $th = $scr.Height - 40 }
-        $form.ClientSize = New-Object System.Drawing.Size($W, $th)
+        if ($h -gt $scr.Height - 40) { $h = $scr.Height - 40 }
+        $form.ClientSize = New-Object System.Drawing.Size($W, $h)
     }
 }
 
-function Start-Timer {
-    $s = $script:st
-    if (-not $s.Start) { $s.Start = Get-Date }
-    if ($s.Pause) {
-        $s.Paused += (Get-Date - $s.Pause).TotalMilliseconds
-        $s.Pause = $null
+# ===== Actions =====
+function Do-Start {
+    if (-not $script:current.StartTime) { $script:current.StartTime = Get-Date }
+    if ($script:current.PausedAt) {
+        $script:current.TotalPausedMs += ((Get-Date) - $script:current.PausedAt).TotalMilliseconds
+        $script:current.PausedAt = $null
     }
-    $s.On = $true
-    $btnStart.Text = "Pause"
-    $btnStart.BackColor = [System.Drawing.Color]::Orange
+    $script:current.Running = $true
+    $btnS.Text = [string][char]0x6682 + [string][char]0x505C
+    $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 100)
 }
-function Pause-Timer {
-    $s = $script:st
-    if ($s.Start -and -not $s.Pause) { $s.Pause = Get-Date }
-    $s.On = $false
-    $btnStart.Text = "Resume"
-    $btnStart.BackColor = [System.Drawing.Color]::Green
+
+function Do-Pause {
+    if ($script:current.StartTime -and -not $script:current.PausedAt) {
+        $script:current.PausedAt = Get-Date
+    }
+    $script:current.Running = $false
+    $btnS.Text = [string][char]0x7EE7 + [string][char]0x7EED
+    $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
 }
-function Split-Timer {
-    $s = $script:st
-    if (-not $s.Start) { return }
-    $sg = @{ Id=$script:nid++; Start=$s.Start; Pause=$s.Pause; Paused=$s.Paused; On=$s.On }
-    [void]$script:segs.Insert(0, $sg)
-    if ($script:segs.Count -gt 20) { $script:segs.RemoveAt($script:segs.Count-1) }
-    $script:st = @{ Start=$null; Pause=$null; Paused=[long]0; On=$false }
-    $lblTimer.Text = "00:00.0"
-    $btnStart.Text = "Start"; $btnStart.BackColor = [System.Drawing.Color]::Green
-    Rebuild-SegUI
-}
-function Clear-Timer {
-    $script:st = @{ Start=$null; Pause=$null; Paused=[long]0; On=$false }
-    $script:segs.Clear()
-    $lblTimer.Text = "00:00.0"
-    $btnStart.Text = "Start"; $btnStart.BackColor = [System.Drawing.Color]::Green
-    Rebuild-SegUI
-}
-function Toggle-Seg($id) {
-    foreach ($sg in $script:segs) {
-        if ($sg.Id -eq $id) {
-            if ($sg.On) { if (-not $sg.Pause) { $sg.Pause = Get-Date }; $sg.On = $false }
-            else { if ($sg.Pause) { $sg.Paused += (Get-Date - $sg.Pause).TotalMilliseconds; $sg.Pause = $null }; if ($sg.Start) { $sg.On = $true } }
-            break
+
+function Do-Split {
+    if (-not $script:current.StartTime) { return }
+    $wasRunning = $script:current.Running
+    if ($wasRunning -and -not $script:current.PausedAt) {
+        $script:current.PausedAt = Get-Date
+    }
+    $seg = @{
+        Id = $script:nextId++
+        StartTime = $script:current.StartTime
+        PausedAt = $script:current.PausedAt
+        TotalPausedMs = $script:current.TotalPausedMs
+        Running = $wasRunning
+    }
+    [void]$script:segments.Insert(0, $seg)
+    if ($script:segments.Count -gt 30) { $script:segments.RemoveAt($script:segments.Count - 1) }
+
+    $script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
+    $lblCur.Text = "00:00.0"
+
+    if ($wasRunning) {
+        $script:current.StartTime = Get-Date
+        $script:current.Running = $true
+        $btnS.Text = [string][char]0x6682 + [string][char]0x505C
+        $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 100)
+        if ($seg.PausedAt) {
+            $seg.TotalPausedMs += ((Get-Date) - $seg.PausedAt).TotalMilliseconds
+            $seg.PausedAt = $null
         }
+    } else {
+        $btnS.Text = [string][char]0x5F00 + [string][char]0x59CB
+        $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
+    }
+    Rebuild-UI
+}
+
+function Do-Clear {
+    $script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
+    $script:segments.Clear()
+    $btnS.Text = [string][char]0x5F00 + [string][char]0x59CB
+    $lblCur.Text = "00:00.0"
+    $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
+    Rebuild-UI
+}
+
+function Do-Toggle($id) {
+    $seg = $null
+    foreach ($s in $script:segments) { if ($s.Id -eq $id) { $seg = $s; break } }
+    if (-not $seg) { return }
+    if ($seg.Running) {
+        if (-not $seg.PausedAt) { $seg.PausedAt = Get-Date }
+        $seg.Running = $false
+    } else {
+        if ($seg.PausedAt) {
+            $seg.TotalPausedMs += ((Get-Date) - $seg.PausedAt).TotalMilliseconds
+            $seg.PausedAt = $null
+        }
+        if ($seg.StartTime) { $seg.Running = $true }
     }
 }
-function Promote-Seg($id) {
+
+function Do-Promote($id) {
     $idx = -1
-    for ($i=0; $i -lt $script:segs.Count; $i++) { if ($script:segs[$i].Id -eq $id) { $idx=$i; break } }
+    for ($i = 0; $i -lt $script:segments.Count; $i++) {
+        if ($script:segments[$i].Id -eq $id) { $idx = $i; break }
+    }
     if ($idx -lt 0) { return }
-    $sg = $script:segs[$idx]
-    $old = @{ Id=$script:nid++; Start=$script:st.Start; Pause=$script:st.Pause; Paused=$script:st.Paused; On=$script:st.On }
-    $script:st = @{ Start=$sg.Start; Pause=$sg.Pause; Paused=$sg.Paused; On=$sg.On }
-    $script:segs[$idx] = $old
-    if ($script:st.On) { $btnStart.Text="Pause"; $btnStart.BackColor=[System.Drawing.Color]::Orange }
-    elseif ($script:st.Start) { $btnStart.Text="Resume"; $btnStart.BackColor=[System.Drawing.Color]::Green }
-    else { $btnStart.Text="Start"; $btnStart.BackColor=[System.Drawing.Color]::Green }
-    Rebuild-SegUI
+    $seg = $script:segments[$idx]
+    $old = @{
+        Id = $script:nextId++
+        StartTime = $script:current.StartTime; PausedAt = $script:current.PausedAt
+        TotalPausedMs = $script:current.TotalPausedMs; Running = $script:current.Running
+    }
+    $script:current = @{
+        StartTime = $seg.StartTime; PausedAt = $seg.PausedAt
+        TotalPausedMs = $seg.TotalPausedMs; Running = $seg.Running
+    }
+    $script:segments[$idx] = $old
+    if ($script:current.Running) {
+        $btnS.Text = [string][char]0x6682 + [string][char]0x505C
+        $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 100)
+    } elseif ($script:current.StartTime) {
+        $btnS.Text = [string][char]0x7EE7 + [string][char]0x7EED
+        $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
+    } else {
+        $btnS.Text = [string][char]0x5F00 + [string][char]0x59CB
+        $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
+    }
+    Rebuild-UI
 }
-function Remove-Seg($id) {
-    for ($i=0; $i -lt $script:segs.Count; $i++) { if ($script:segs[$i].Id -eq $id) { $script:segs.RemoveAt($i); break } }
-    Rebuild-SegUI
+
+function Do-Remove($id) {
+    for ($i = 0; $i -lt $script:segments.Count; $i++) {
+        if ($script:segments[$i].Id -eq $id) { $script:segments.RemoveAt($i); break }
+    }
+    Rebuild-UI
 }
 
-$btnStart.Add_Click({ if ($script:st.On) { Pause-Timer } else { Start-Timer } })
-$btnSplit.Add_Click({ Split-Timer })
-$btnClear.Add_Click({ Clear-Timer })
-$lblTimer.Add_Click({ if ($script:st.On) { Pause-Timer } else { Start-Timer } })
+# ===== Button Events =====
+$btnS.Add_Click({ if ($script:current.Running) { Do-Pause } else { Do-Start } })
+$btnL.Add_Click({ Do-Split })
+$btnC.Add_Click({ Do-Clear })
 
-$btnX.Add_Click({ $tmr.Stop(); $tmr.Dispose(); $ni.Dispose(); $form.Close(); [System.Windows.Forms.Application]::Exit() })
+$btnPin.Add_Click({
+    $script:pinned = -not $script:pinned
+    if ($script:pinned) {
+        $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 255, 180)
+        $lblTitle.Cursor = [System.Windows.Forms.Cursors]::No
+    } else {
+        $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(120, 130, 160)
+        $lblTitle.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+    }
+})
 
-# Tick
-$tmr = New-Object System.Windows.Forms.Timer; $tmr.Interval = 100
-$tmr.Add_Tick({
-    if ($script:st.Start) { $lblTimer.Text = Fmt (Elapsed $script:st) }
-    foreach ($sg in $script:segs) {
-        if (-not $script:segCtrls.ContainsKey($sg.Id)) { continue }
-        $c = $script:segCtrls[$sg.Id]
-        $c.TL.Text = Fmt (Elapsed $sg)
-        if ($sg.On) {
-            $c.SL.Text = "running..."; $c.SL.ForeColor = [System.Drawing.Color]::Red
-            $c.TL.ForeColor = [System.Drawing.Color]::Red; $c.PB.Text = "||"
+$btnClose.Add_Click({
+    $tk.Stop(); $tk.Dispose(); $notifyIcon.Dispose()
+    $form.Close(); [System.Windows.Forms.Application]::Exit()
+})
+
+# ===== Tick =====
+$tk = New-Object System.Windows.Forms.Timer; $tk.Interval = 100
+$tk.Add_Tick({
+    $lblClock.Text = (Get-Date).ToString("HH:mm")
+    if ($script:current.StartTime) { $lblCur.Text = Fmt (Get-Elapsed $script:current) }
+    foreach ($seg in $script:segments) {
+        if (-not $script:segCtrls.ContainsKey($seg.Id)) { continue }
+        $c = $script:segCtrls[$seg.Id]
+        $c.TL.Text = Fmt (Get-Elapsed $seg)
+        if ($seg.Running) {
+            $c.SL.Text = [string][char]0x25CF + " " + [string][char]0x8BA1 + [string][char]0x65F6 + [string][char]0x4E2D + "..."
+            $c.SL.ForeColor = [System.Drawing.Color]::FromArgb(140, 55, 55)
+            $c.TL.ForeColor = [System.Drawing.Color]::FromArgb(255, 68, 68)
+            $c.PB.Text = "||"
         } else {
-            $c.SL.Text = "paused"; $c.SL.ForeColor = [System.Drawing.Color]::Gray
-            $c.TL.ForeColor = [System.Drawing.Color]::Gray; $c.PB.Text = ">"
+            $c.SL.Text = [string][char]0x5DF2 + [string][char]0x6682 + [string][char]0x505C
+            $c.SL.ForeColor = [System.Drawing.Color]::FromArgb(70, 70, 70)
+            $c.TL.ForeColor = [System.Drawing.Color]::FromArgb(120, 120, 120)
+            $c.PB.Text = ">"
         }
     }
 })
 
-# Tray icon
-$bmp = New-Object System.Drawing.Bitmap(16,16)
+# ===== Right-click =====
+$ctx = New-Object System.Windows.Forms.ContextMenuStrip
+$mp = New-Object System.Windows.Forms.ToolStripMenuItem(([string][char]0x6682 + [string][char]0x505C + "/" + [string][char]0x7EE7 + [string][char]0x7EED))
+$mp.Add_Click({ if ($script:current.Running) { Do-Pause } else { Do-Start } })
+$mc = New-Object System.Windows.Forms.ToolStripMenuItem(([string][char]0x6E05 + [string][char]0x7A7A))
+$mc.Add_Click({ Do-Clear })
+[void]$ctx.Items.AddRange(@($mp, $mc))
+$curBox.ContextMenuStrip = $ctx
+$segPanel.ContextMenuStrip = $ctx
+
+# ===== Tray =====
+$bmp = New-Object System.Drawing.Bitmap(16, 16)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
 $g.Clear([System.Drawing.Color]::White)
-$g.FillEllipse([System.Drawing.SolidBrush]::new([System.Drawing.Color]::Green), 1,1,14,14)
+$g.FillEllipse([System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(80, 160, 255)), 1, 1, 14, 14)
 $g.Dispose()
-$ni = New-Object System.Windows.Forms.NotifyIcon
-$ni.Icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
-$ni.Visible = $true; $ni.Text = "Taskbar Timer"
+$ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+
+$notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+$notifyIcon.Visible = $true; $notifyIcon.Icon = $ico
+$notifyIcon.Text = "Taskbar Timer"
+
 $tc = New-Object System.Windows.Forms.ContextMenuStrip
-$tc.Items.Add("Show").Add_Click({ $form.Show(); $form.Activate() })
-$tc.Items.Add("Exit").Add_Click({ $btnX.PerformClick() })
-$ni.ContextMenuStrip = $tc
+$m1 = New-Object System.Windows.Forms.ToolStripMenuItem(([string][char]0x663E + [string][char]0x793A + [string][char]0x7A97 + [string][char]0x53E3))
+$m1.Add_Click({ $form.Show(); $form.Activate() })
+$m2 = New-Object System.Windows.Forms.ToolStripMenuItem(([string][char]0x56FA + [string][char]0x5B9A + [string][char]0x4F4D + [string][char]0x7F6E))
+$m2.Add_Click({ $btnPin.PerformClick() })
+$m3 = New-Object System.Windows.Forms.ToolStripMenuItem(([string][char]0x9000 + [string][char]0x51FA))
+$m3.Add_Click({ $btnClose.PerformClick() })
+[void]$tc.Items.AddRange(@($m1, $m2, $m3))
+$notifyIcon.ContextMenuStrip = $tc
 
-# Position
+# ===== Position =====
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$form.Location = New-Object System.Drawing.Point(($scr.Right - $W - 20), ($scr.Bottom - 150))
+$form.Location = New-Object System.Drawing.Point(($scr.Right - $W - 10), ($scr.Bottom - 120))
 
-$tmr.Start()
+$tk.Start()
 $form.Show()
 [System.Windows.Forms.Application]::Run()
