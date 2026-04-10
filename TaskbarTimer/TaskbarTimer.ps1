@@ -1,8 +1,8 @@
-﻿# Taskbar Timer - 分段继续计时版
+﻿# Taskbar Timer - 直观展示版
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$W = 280; $H = 240
+$W = 280; $H = 280
 
 Add-Type @"
 using System.Runtime.InteropServices;
@@ -99,11 +99,10 @@ $lblClock.Text = "HH:MM"
 $lblClock.Padding = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
 [void]$clockRow.Controls.Add($lblClock)
 
-# 计时显示区
+# 计时显示区 - 分成两个清晰的区域
 $timerPanel = New-Object System.Windows.Forms.Panel
 $timerPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
 $timerPanel.BackColor = [System.Drawing.Color]::Transparent
-$timerPanel.ContextMenuStrip = $null
 
 $ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $mPause = New-Object System.Windows.Forms.ToolStripMenuItem("暂停")
@@ -114,35 +113,67 @@ $mClear.Add_Click({ ResetAll })
 [void]$ctxMenu.Items.Add($mClear)
 $timerPanel.ContextMenuStrip = $ctxMenu
 
-# 总计时
+# 总时间区域（蓝色背景框）
+$totalBox = New-Object System.Windows.Forms.Panel
+$totalBox.Location = New-Object System.Drawing.Point(12, 10)
+$totalBox.Size = New-Object System.Drawing.Size(($W - 24), 70)
+$totalBox.BackColor = [System.Drawing.Color]::FromArgb(60, 40, 90, 160)
+$totalBox.Padding = [System.Windows.Forms.Padding]::new(10, 8, 10, 8)
+
+$lblTotalTitle = New-Object System.Windows.Forms.Label
+$lblTotalTitle.Dock = [System.Windows.Forms.DockStyle]::Top
+$lblTotalTitle.Height = 18
+$lblTotalTitle.Text = "总时间"
+$lblTotalTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
+$lblTotalTitle.ForeColor = [System.Drawing.Color]::FromArgb(200, 150, 200, 255)
+$lblTotalTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+
 $lblTotal = New-Object System.Windows.Forms.Label
-$lblTotal.Location = New-Object System.Drawing.Point(12, 8)
-$lblTotal.Size = New-Object System.Drawing.Size(($W - 24), 52)
-$lblTotal.Font = New-Object System.Drawing.Font("Consolas", 28, [System.Drawing.FontStyle]::Bold)
-$lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 245, 255)
+$lblTotal.Dock = [System.Windows.Forms.DockStyle]::Fill
+$lblTotal.Font = New-Object System.Drawing.Font("Consolas", 32, [System.Drawing.FontStyle]::Bold)
+$lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 160, 255)
 $lblTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTotal.Text = "00:00.0"
 
-# 当前分段
+[void]$totalBox.Controls.Add($lblTotal)
+[void]$totalBox.Controls.Add($lblTotalTitle)
+
+# 当前分段区域（绿色背景框）
+$lapBox = New-Object System.Windows.Forms.Panel
+$lapBox.Location = New-Object System.Drawing.Point(12, 86)
+$lapBox.Size = New-Object System.Drawing.Size(($W - 24), 70)
+$lapBox.BackColor = [System.Drawing.Color]::FromArgb(60, 40, 100, 60)
+$lapBox.Padding = [System.Windows.Forms.Padding]::new(10, 8, 10, 8)
+
+$lblLapTitle = New-Object System.Windows.Forms.Label
+$lblLapTitle.Dock = [System.Windows.Forms.DockStyle]::Top
+$lblLapTitle.Height = 18
+$lblLapTitle.Text = "当前分段"
+$lblLapTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
+$lblLapTitle.ForeColor = [System.Drawing.Color]::FromArgb(200, 150, 220, 150)
+$lblLapTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+
 $lblLap = New-Object System.Windows.Forms.Label
-$lblLap.Location = New-Object System.Drawing.Point(12, 62)
-$lblLap.Size = New-Object System.Drawing.Size(($W - 24), 22)
-$lblLap.Font = New-Object System.Drawing.Font("Consolas", 11)
-$lblLap.ForeColor = [System.Drawing.Color]::FromArgb(180, 190, 220)
+$lblLap.Dock = [System.Windows.Forms.DockStyle]::Fill
+$lblLap.Font = New-Object System.Drawing.Font("Consolas", 32, [System.Drawing.FontStyle]::Bold)
+$lblLap.ForeColor = [System.Drawing.Color]::FromArgb(255, 150, 220, 150)
 $lblLap.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$lblLap.Text = "分段 00:00.0"
+$lblLap.Text = "00:00.0"
+
+[void]$lapBox.Controls.Add($lblLap)
+[void]$lapBox.Controls.Add($lblLapTitle)
 
 # 分段列表
 $lapList = New-Object System.Windows.Forms.ListBox
-$lapList.Location = New-Object System.Drawing.Point(12, 88)
-$lapList.Size = New-Object System.Drawing.Size(($W - 24), 80)
+$lapList.Location = New-Object System.Drawing.Point(12, 162)
+$lapList.Size = New-Object System.Drawing.Size(($W - 24), 68)
 $lapList.BackColor = [System.Drawing.Color]::FromArgb(40, 20, 22, 35)
 $lapList.ForeColor = [System.Drawing.Color]::FromArgb(180, 195, 220)
 $lapList.BorderStyle = [System.Windows.Forms.BorderStyle]::None
 $lapList.Font = New-Object System.Drawing.Font("Consolas", 9)
 
-[void]$timerPanel.Controls.Add($lblTotal)
-[void]$timerPanel.Controls.Add($lblLap)
+[void]$timerPanel.Controls.Add($totalBox)
+[void]$timerPanel.Controls.Add($lapBox)
 [void]$timerPanel.Controls.Add($lapList)
 
 # 按钮区
@@ -184,43 +215,38 @@ $btnReset.Add_Click({ ResetAll })
 [void]$form.Controls.Add($clockRow)
 [void]$form.Controls.Add($titleBar)
 
-# 定时器 - 始终更新显示（暂停时也显示当前值）
+# 定时器
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 100
 $timer.Add_Tick({
     $lblClock.Text = (Get-Date).ToString("HH:mm")
     
-    # 总是计算并显示总时间
+    # 总时间
     if ($script:startTime) {
         $elapsed = $script:pausedElapsed + (Get-Date) - $script:startTime
-        $ts = $elapsed.ToString("mm\:ss\.f")
-        $lblTotal.Text = $ts
+        $lblTotal.Text = $elapsed.ToString("mm\:ss\.f")
         if ($script:running) {
-            $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 210, 130)
-        } else {
-            $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 210, 220)
+            $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 200, 100)
         }
     }
     
-    # 总是计算并显示分段时间（即使暂停也显示暂停时的值）
+    # 当前分段
     $lapElapsed = [TimeSpan]::Zero
     if ($script:running -and $script:lapStart) {
         $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
     } else {
         $lapElapsed = $script:lastLapTime
     }
-    $lblLap.Text = "分段 " + $lapElapsed.ToString("mm\:ss\.f")
+    $lblLap.Text = $lapElapsed.ToString("mm\:ss\.f")
 })
 
 function ToggleTimer {
     if (-not $script:running) {
-        # 开始/继续
         $script:running = $true
         if (-not $script:startTime) { 
             $script:startTime = Get-Date 
             $script:lapStart = Get-Date
         } elseif (-not $script:lapStart) {
-            # 恢复时继续分段计时
             $script:lapStart = Get-Date
         }
         $btnStart.Text = "暂停"
@@ -228,7 +254,6 @@ function ToggleTimer {
         $btnStart.BackColor = [System.Drawing.Color]::FromArgb(70, 65, 45)
         $mPause.Text = "暂停"
     } else {
-        # 暂停
         if ($script:lapStart) {
             $script:lastLapTime += (Get-Date) - $script:lapStart
             $script:lapStart = $null
@@ -242,7 +267,6 @@ function ToggleTimer {
 }
 
 function RecordLap {
-    # 计算当前分段时长
     $lapElapsed = [TimeSpan]::Zero
     if ($script:running -and $script:lapStart) {
         $lapElapsed = $script:lastLapTime + ((Get-Date) - $script:lapStart)
@@ -259,7 +283,6 @@ function RecordLap {
     $lapList.Items.Clear()
     foreach ($l in $script:laps) { [void]$lapList.Items.Add($l) }
     
-    # 重置当前分段，继续计时
     $script:lastLapTime = [TimeSpan]::Zero
     if ($script:running) {
         $script:lapStart = Get-Date
@@ -271,8 +294,8 @@ function ResetAll {
     $script:pausedElapsed = [TimeSpan]::Zero; $script:laps = @()
     $script:lapStart = $null; $script:lastLapTime = [TimeSpan]::Zero
     $lblTotal.Text = "00:00.0"
-    $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 245, 255)
-    $lblLap.Text = "分段 00:00.0"
+    $lblTotal.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 160, 255)
+    $lblLap.Text = "00:00.0"
     $lapList.Items.Clear()
     $btnStart.Text = "开始"
     $btnStart.ForeColor = [System.Drawing.Color]::FromArgb(200, 210, 230)
