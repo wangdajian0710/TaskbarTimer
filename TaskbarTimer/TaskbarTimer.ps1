@@ -1,8 +1,10 @@
-﻿# Taskbar Timer v4 - Safe (no transparency, no Win32 API)
+﻿# Taskbar Timer v5
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$script:W = 400
+# ===== Constants (avoid $script:W math bug in PS5.1) =====
+$W = 400
+$H_MAIN = 86
 
 # ===== State =====
 $script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
@@ -21,9 +23,9 @@ function Fmt($ts) {
     return $ts.ToString("mm\:ss\.f")
 }
 
-# ===== Form - solid, no tricks =====
+# ===== Form =====
 $form = New-Object System.Windows.Forms.Form
-$form.ClientSize = New-Object System.Drawing.Size($script:W, 86)
+$form.ClientSize = New-Object System.Drawing.Size($W, $H_MAIN)
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
 $form.TopMost = $true
@@ -33,12 +35,12 @@ $form.BackColor = [System.Drawing.Color]::FromArgb(30, 32, 48)
 # ===== Title Bar (y=0) =====
 $titleBar = New-Object System.Windows.Forms.Panel
 $titleBar.Location = New-Object System.Drawing.Point(0, 0)
-$titleBar.Size = New-Object System.Drawing.Size($script:W, 26)
+$titleBar.Size = New-Object System.Drawing.Size($W, 26)
 $titleBar.BackColor = [System.Drawing.Color]::FromArgb(40, 42, 62)
 
 $lblTitle = New-Object System.Windows.Forms.Label
 $lblTitle.Location = New-Object System.Drawing.Point(0, 0)
-$lblTitle.Size = New-Object System.Drawing.Size($script:W - 56, 26)
+$lblTitle.Size = New-Object System.Drawing.Size(344, 26)
 $lblTitle.Text = "  Taskbar Timer"
 $lblTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
 $lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(180, 180, 210)
@@ -46,17 +48,17 @@ $lblTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTitle.Cursor = [System.Windows.Forms.Cursors]::SizeAll
 
 $btnPin = New-Object System.Windows.Forms.Button
-$btnPin.Location = New-Object System.Drawing.Point($script:W - 56, 0)
+$btnPin.Location = New-Object System.Drawing.Point(344, 0)
 $btnPin.Size = New-Object System.Drawing.Size(28, 26)
-$btnPin.Text = [char]0x1F4CC
-$btnPin.Font = New-Object System.Drawing.Font("Segoe UI Symbol", 9)
+$btnPin.Text = "Pin"
+$btnPin.Font = New-Object System.Drawing.Font("Segoe UI", 8)
 $btnPin.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(130, 130, 160)
 $btnPin.BackColor = [System.Drawing.Color]::Transparent
 $btnPin.FlatAppearance.BorderSize = 0
 
 $btnClose = New-Object System.Windows.Forms.Button
-$btnClose.Location = New-Object System.Drawing.Point($script:W - 28, 0)
+$btnClose.Location = New-Object System.Drawing.Point(372, 0)
 $btnClose.Size = New-Object System.Drawing.Size(28, 26)
 $btnClose.Text = "X"
 $btnClose.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
@@ -75,7 +77,7 @@ $lblTitle.Add_MouseDown({ param($s,$e)
 })
 $lblTitle.Add_MouseMove({ param($s,$e)
     if ($script:isDrag -and -not $script:pinned) {
-        $form.Location = [System.Drawing.Point]::new($form.Location.X + $e.X - $script:dOff.X, $form.Location.Y + $e.Y - $script:dOff.Y) }
+        $form.Location = New-Object System.Drawing.Point($form.Location.X + $e.X - $script:dOff.X, $form.Location.Y + $e.Y - $script:dOff.Y) }
 })
 $lblTitle.Add_MouseUp({ $script:isDrag = $false })
 $lblTitle.Add_MouseDoubleClick({ $form.Hide() })
@@ -83,7 +85,7 @@ $lblTitle.Add_MouseDoubleClick({ $form.Hide() })
 # ===== Timer Bar (y=26) =====
 $tBar = New-Object System.Windows.Forms.Panel
 $tBar.Location = New-Object System.Drawing.Point(0, 26)
-$tBar.Size = New-Object System.Drawing.Size($script:W, 60)
+$tBar.Size = New-Object System.Drawing.Size($W, 60)
 $tBar.BackColor = [System.Drawing.Color]::FromArgb(35, 37, 55)
 
 # Current time box
@@ -96,7 +98,7 @@ $curBox.Cursor = [System.Windows.Forms.Cursors]::Hand
 $lblCL = New-Object System.Windows.Forms.Label
 $lblCL.Location = New-Object System.Drawing.Point(8, 0)
 $lblCL.Size = New-Object System.Drawing.Size(35, 40)
-$lblCL.Text = [char]0x5F53 + [char]0x524D
+$lblCL.Text = [string][char]0x5F53 + [string][char]0x524D
 $lblCL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 10)
 $lblCL.ForeColor = [System.Drawing.Color]::FromArgb(130, 140, 210)
 $lblCL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
@@ -135,16 +137,16 @@ function MkBtn($t, $x, $c) {
     return $b
 }
 
-$btnS = MkBtn ([char]0x5F00 + [char]0x59CB) 240 ([System.Drawing.Color]::White)
-$btnL = MkBtn ([char]0x5206 + [char]0x6BB5) 296 ([System.Drawing.Color]::FromArgb(180, 180, 255))
-$btnC = MkBtn ([char]0x6E05 + [char]0x7A7A) 352 ([System.Drawing.Color]::FromArgb(255, 180, 180))
+$btnS = MkBtn "Start" 240 White
+$btnL = MkBtn "Split" 296 ([System.Drawing.Color]::FromArgb(180, 180, 255))
+$btnC = MkBtn "Clear" 352 ([System.Drawing.Color]::FromArgb(255, 180, 180))
 
 [void]$form.Controls.AddRange(@($btnS, $btnL, $btnC))
 
 # ===== Segment Panel (y=86) =====
 $segPanel = New-Object System.Windows.Forms.Panel
 $segPanel.Location = New-Object System.Drawing.Point(0, 86)
-$segPanel.Size = New-Object System.Drawing.Size($script:W, 0)
+$segPanel.Size = New-Object System.Drawing.Size($W, 0)
 $segPanel.BackColor = [System.Drawing.Color]::FromArgb(25, 27, 40)
 $segPanel.Visible = $false
 $form.Controls.Add($segPanel)
@@ -152,7 +154,7 @@ $form.Controls.Add($segPanel)
 # ===== Segment Row =====
 function New-Row($seg) {
     $row = New-Object System.Windows.Forms.Panel
-    $row.Size = New-Object System.Drawing.Size($script:W, 46)
+    $row.Size = New-Object System.Drawing.Size($W, 46)
     $row.BackColor = [System.Drawing.Color]::FromArgb(38, 40, 58)
 
     $nL = New-Object System.Windows.Forms.Label
@@ -171,13 +173,13 @@ function New-Row($seg) {
     $sL.Location = New-Object System.Drawing.Point(38, 26); $sL.Size = New-Object System.Drawing.Size(110, 18)
     $sL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
     $sL.ForeColor = [System.Drawing.Color]::FromArgb(160, 70, 70)
-    $sL.Text = [char]0x25CF + " " + [char]0x8BA1 + [char]0x65F6 + [char]0x4E2D + "..."
+    $sL.Text = "* running..."
 
     function MkSb($t, $x, $c, $act) {
         $b = New-Object System.Windows.Forms.Button
         $b.Size = New-Object System.Drawing.Size(40, 32)
         $b.Location = New-Object System.Drawing.Point($x, 7)
-        $b.Text = $t; $b.Font = New-Object System.Drawing.Font("Segoe UI Symbol", 14)
+        $b.Text = $t; $b.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
         $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
         $b.ForeColor = $c
         $b.BackColor = [System.Drawing.Color]::FromArgb(55, 58, 80)
@@ -195,9 +197,9 @@ function New-Row($seg) {
         return $b
     }
 
-    $bP = MkSb [char]0x23F8 260 White "toggle"
-    $bU = MkSb [char]0x2B06 308 White "promote"
-    $bD = MkSb [char]0x2715 356 ([System.Drawing.Color]::FromArgb(255, 120, 120)) "remove"
+    $bP = MkSb "||" 260 White "toggle"
+    $bU = MkSb "^" 308 White "promote"
+    $bD = MkSb "X" 356 ([System.Drawing.Color]::FromArgb(255, 120, 120)) "remove"
 
     [void]$row.Controls.AddRange(@($nL, $tL, $sL, $bP, $bU, $bD))
     $script:segCtrls[$seg.Id] = @{ Row=$row; TL=$tL; SL=$sL; PB=$bP }
@@ -213,16 +215,16 @@ function Rebuild-UI {
     $script:segCtrls.Clear()
     if ($script:segments.Count -eq 0) {
         $segPanel.Visible = $false
-        $form.ClientSize = New-Object System.Drawing.Size($script:W, 86)
+        $form.ClientSize = New-Object System.Drawing.Size($W, $H_MAIN)
     } else {
         $segPanel.Visible = $true
         foreach ($seg in $script:segments) { [void]$segPanel.Controls.Add((New-Row $seg)) }
         $h = $script:segments.Count * 46
-        $segPanel.Size = New-Object System.Drawing.Size($script:W, $h)
-        $totalH = 86 + $h
+        $segPanel.Size = New-Object System.Drawing.Size($W, $h)
+        $totalH = $H_MAIN + $h
         $scr = [System.Windows.Forms.Screen]::FromControl($form).WorkingArea
         if ($totalH -gt $scr.Height - 40) { $totalH = $scr.Height - 40 }
-        $form.ClientSize = New-Object System.Drawing.Size($script:W, $totalH)
+        $form.ClientSize = New-Object System.Drawing.Size($W, $totalH)
     }
 }
 
@@ -234,7 +236,7 @@ function Do-Start {
         $script:current.PausedAt = $null
     }
     $script:current.Running = $true
-    $btnS.Text = [char]0x6682 + [char]0x505C
+    $btnS.Text = "Pause"
     $btnS.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 100)
 }
 
@@ -243,7 +245,7 @@ function Do-Pause {
         $script:current.PausedAt = Get-Date
     }
     $script:current.Running = $false
-    $btnS.Text = [char]0x7EE7 + [char]0x7EED
+    $btnS.Text = "Resume"
     $btnS.ForeColor = [System.Drawing.Color]::White
 }
 
@@ -260,7 +262,7 @@ function Do-Split {
     if ($script:segments.Count -gt 20) { $script:segments.RemoveAt($script:segments.Count - 1) }
     $script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
     $lblCur.Text = "00:00.0"
-    $btnS.Text = [char]0x5F00 + [char]0x59CB
+    $btnS.Text = "Start"
     $btnS.ForeColor = [System.Drawing.Color]::White
     Rebuild-UI
 }
@@ -268,7 +270,7 @@ function Do-Split {
 function Do-Clear {
     $script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
     $script:segments.Clear()
-    $btnS.Text = [char]0x5F00 + [char]0x59CB
+    $btnS.Text = "Start"
     $lblCur.Text = "00:00.0"
     $btnS.ForeColor = [System.Drawing.Color]::White
     Rebuild-UI
@@ -308,13 +310,13 @@ function Do-Promote($id) {
     }
     $script:segments[$idx] = $old
     if ($script:current.Running) {
-        $btnS.Text = [char]0x6682 + [char]0x505C
+        $btnS.Text = "Pause"
         $btnS.ForeColor = [System.Drawing.Color]::FromArgb(255, 220, 100)
     } elseif ($script:current.StartTime) {
-        $btnS.Text = [char]0x7EE7 + [char]0x7EED
+        $btnS.Text = "Resume"
         $btnS.ForeColor = [System.Drawing.Color]::White
     } else {
-        $btnS.Text = [char]0x5F00 + [char]0x59CB
+        $btnS.Text = "Start"
         $btnS.ForeColor = [System.Drawing.Color]::White
     }
     Rebuild-UI
@@ -358,24 +360,24 @@ $tk.Add_Tick({
         $c = $script:segCtrls[$seg.Id]
         $c.TL.Text = Fmt (Get-Elapsed $seg)
         if ($seg.Running) {
-            $c.SL.Text = [char]0x25CF + " " + [char]0x8BA1 + [char]0x65F6 + [char]0x4E2D + "..."
+            $c.SL.Text = "* running..."
             $c.SL.ForeColor = [System.Drawing.Color]::FromArgb(160, 70, 70)
             $c.TL.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
-            $c.PB.Text = [char]0x23F8
+            $c.PB.Text = "||"
         } else {
-            $c.SL.Text = [char]0x5DF2 + [char]0x6682 + [char]0x505C
+            $c.SL.Text = "paused"
             $c.SL.ForeColor = [System.Drawing.Color]::FromArgb(90, 90, 90)
             $c.TL.ForeColor = [System.Drawing.Color]::FromArgb(140, 140, 140)
-            $c.PB.Text = [char]0x25B6
+            $c.PB.Text = ">"
         }
     }
 })
 
 # ===== Right-click =====
 $ctx = New-Object System.Windows.Forms.ContextMenuStrip
-$mp = New-Object System.Windows.Forms.ToolStripMenuItem(([char]0x6682 + [char]0x505C + "/" + [char]0x7EE7 + [char]0x7EED))
+$mp = New-Object System.Windows.Forms.ToolStripMenuItem("Pause / Resume")
 $mp.Add_Click({ if ($script:current.Running) { Do-Pause } else { Do-Start } })
-$mc = New-Object System.Windows.Forms.ToolStripMenuItem(([char]0x6E05 + [char]0x7A7A))
+$mc = New-Object System.Windows.Forms.ToolStripMenuItem("Clear")
 $mc.Add_Click({ Do-Clear })
 [void]$ctx.Items.AddRange(@($mp, $mc))
 $curBox.ContextMenuStrip = $ctx
@@ -395,18 +397,18 @@ $notifyIcon.Visible = $true; $notifyIcon.Icon = $ico
 $notifyIcon.Text = "Taskbar Timer"
 
 $tc = New-Object System.Windows.Forms.ContextMenuStrip
-$m1 = New-Object System.Windows.Forms.ToolStripMenuItem(([char]0x663E + [char]0x793A + [char]0x7A97 + [char]0x53E3))
+$m1 = New-Object System.Windows.Forms.ToolStripMenuItem("Show")
 $m1.Add_Click({ $form.Show(); $form.Activate() })
-$m2 = New-Object System.Windows.Forms.ToolStripMenuItem(([char]0x56FA + [char]0x5B9A + [char]0x4F4D + [char]0x7F6E))
+$m2 = New-Object System.Windows.Forms.ToolStripMenuItem("Pin / Unpin")
 $m2.Add_Click({ $btnPin.PerformClick() })
-$m3 = New-Object System.Windows.Forms.ToolStripMenuItem(([char]0x9000 + [char]0x51FA))
+$m3 = New-Object System.Windows.Forms.ToolStripMenuItem("Exit")
 $m3.Add_Click({ $btnClose.PerformClick() })
 [void]$tc.Items.AddRange(@($m1, $m2, $m3))
 $notifyIcon.ContextMenuStrip = $tc
 
 # ===== Position =====
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$form.Location = New-Object System.Drawing.Point(($scr.Right - $script:W - 10), ($scr.Bottom - 140))
+$form.Location = New-Object System.Drawing.Point(($scr.Right - $W - 10), ($scr.Bottom - 140))
 
 $tk.Start()
 $form.Show()
