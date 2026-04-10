@@ -1,10 +1,9 @@
-﻿# Taskbar Timer - 中文版 (修复PS5.1兼容性)
+﻿# Taskbar Timer - 中文版 1.5x
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# 常量 - 不用 $script: 避免PS5.1数组bug
-$W = 340
-$H_MAIN = 78
+$W = 510
+$H_MAIN = 117
 
 # ===== State =====
 $script:current = @{ StartTime=$null; PausedAt=$null; TotalPausedMs=[long]0; Running=$false }
@@ -25,8 +24,8 @@ function Fmt($ts) {
 
 # ===== Form =====
 $form = New-Object System.Windows.Forms.Form
-$form.Size = New-Object System.Drawing.Size($W, 90)
-$form.MinimumSize = New-Object System.Drawing.Size($W, 90)
+$form.Size = New-Object System.Drawing.Size($W, 130)
+$form.MinimumSize = New-Object System.Drawing.Size($W, 130)
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
 $form.TopMost = $true
@@ -36,30 +35,30 @@ $form.BackColor = [System.Drawing.Color]::FromArgb(20, 22, 35)
 # ===== Title Bar =====
 $titleBar = New-Object System.Windows.Forms.Panel
 $titleBar.Dock = [System.Windows.Forms.DockStyle]::Top
-$titleBar.Height = 26
+$titleBar.Height = 39
 $titleBar.BackColor = [System.Drawing.Color]::FromArgb(30, 34, 55)
 
 $lblTitle = New-Object System.Windows.Forms.Label
 $lblTitle.Dock = [System.Windows.Forms.DockStyle]::Fill
 $lblTitle.Text = "  >> Taskbar Timer"
-$lblTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$lblTitle.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 14)
 $lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 190)
 $lblTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblTitle.Cursor = [System.Windows.Forms.Cursors]::SizeAll
 
 $btnPin = New-Object System.Windows.Forms.Button
-$btnPin.Dock = [System.Windows.Forms.DockStyle]::Right; $btnPin.Width = 28
+$btnPin.Dock = [System.Windows.Forms.DockStyle]::Right; $btnPin.Width = 42
 $btnPin.Text = "Pin"
-$btnPin.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+$btnPin.Font = New-Object System.Drawing.Font("Segoe UI", 12)
 $btnPin.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnPin.ForeColor = [System.Drawing.Color]::FromArgb(120, 130, 160)
 $btnPin.BackColor = [System.Drawing.Color]::Transparent
 $btnPin.FlatAppearance.BorderSize = 0
 
 $btnClose = New-Object System.Windows.Forms.Button
-$btnClose.Dock = [System.Windows.Forms.DockStyle]::Right; $btnClose.Width = 28
+$btnClose.Dock = [System.Windows.Forms.DockStyle]::Right; $btnClose.Width = 42
 $btnClose.Text = "X"
-$btnClose.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnClose.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
 $btnClose.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnClose.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 180)
 $btnClose.BackColor = [System.Drawing.Color]::Transparent
@@ -82,34 +81,34 @@ $lblTitle.Add_MouseUp({ $script:isDrag = $false })
 # ===== Timer Bar =====
 $tBar = New-Object System.Windows.Forms.Panel
 $tBar.Dock = [System.Windows.Forms.DockStyle]::Top
-$tBar.Height = 52
+$tBar.Height = 78
 $tBar.BackColor = [System.Drawing.Color]::FromArgb(25, 28, 42)
-$tBar.Padding = [System.Windows.Forms.Padding]::new(10, 0, 10, 0)
+$tBar.Padding = [System.Windows.Forms.Padding]::new(15, 0, 15, 0)
 
 # Drag handle
 $dragH = New-Object System.Windows.Forms.Panel
-$dragH.Size = New-Object System.Drawing.Size(6, 20)
+$dragH.Size = New-Object System.Drawing.Size(9, 30)
 $dragH.BackColor = [System.Drawing.Color]::FromArgb(80, 85, 100)
-$dragH.Location = New-Object System.Drawing.Point(4, 16)
+$dragH.Location = New-Object System.Drawing.Point(6, 24)
 $dragH.Cursor = [System.Windows.Forms.Cursors]::SizeAll
 
 # Current time box
 $curBox = New-Object System.Windows.Forms.Panel
-$curBox.Location = New-Object System.Drawing.Point(18, 8)
-$curBox.Size = New-Object System.Drawing.Size(140, 36)
+$curBox.Location = New-Object System.Drawing.Point(27, 12)
+$curBox.Size = New-Object System.Drawing.Size(210, 54)
 $curBox.BackColor = [System.Drawing.Color]::FromArgb(28, 44, 58)
-$curBox.Padding = [System.Windows.Forms.Padding]::new(8, 4, 8, 4)
+$curBox.Padding = [System.Windows.Forms.Padding]::new(12, 6, 12, 6)
 
 $lblCL = New-Object System.Windows.Forms.Label
-$lblCL.Dock = [System.Windows.Forms.DockStyle]::Left; $lblCL.Width = 32
+$lblCL.Dock = [System.Windows.Forms.DockStyle]::Left; $lblCL.Width = 48
 $lblCL.Text = [string][char]0x5F53 + [string][char]0x524D
-$lblCL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$lblCL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 14)
 $lblCL.ForeColor = [System.Drawing.Color]::FromArgb(110, 120, 190)
 $lblCL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 
 $lblCur = New-Object System.Windows.Forms.Label
 $lblCur.Dock = [System.Windows.Forms.DockStyle]::Fill
-$lblCur.Font = New-Object System.Drawing.Font("Consolas", 22, [System.Drawing.FontStyle]::Bold)
+$lblCur.Font = New-Object System.Drawing.Font("Consolas", 33, [System.Drawing.FontStyle]::Bold)
 $lblCur.ForeColor = [System.Drawing.Color]::FromArgb(180, 160, 255)
 $lblCur.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblCur.Text = "00:00.0"
@@ -118,18 +117,18 @@ $lblCur.Text = "00:00.0"
 
 # Clock
 $lblClock = New-Object System.Windows.Forms.Label
-$lblClock.Location = New-Object System.Drawing.Point(166, 18)
-$lblClock.Font = New-Object System.Drawing.Font("Consolas", 10)
+$lblClock.Location = New-Object System.Drawing.Point(249, 27)
+$lblClock.Font = New-Object System.Drawing.Font("Consolas", 15)
 $lblClock.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 120)
 $lblClock.Text = "HH:MM"
 
 # Buttons
 function MkBtn($t, $x, $c) {
     $b = New-Object System.Windows.Forms.Button
-    $b.Location = New-Object System.Drawing.Point($x, 10)
-    $b.Size = New-Object System.Drawing.Size(42, 32)
+    $b.Location = New-Object System.Drawing.Point($x, 15)
+    $b.Size = New-Object System.Drawing.Size(63, 48)
     $b.Text = $t
-    $b.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9, [System.Drawing.FontStyle]::Bold)
+    $b.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 14, [System.Drawing.FontStyle]::Bold)
     $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $b.ForeColor = $c
     $b.BackColor = [System.Drawing.Color]::FromArgb(35, 40, 60)
@@ -138,9 +137,9 @@ function MkBtn($t, $x, $c) {
     return $b
 }
 
-$btnS = MkBtn ([string][char]0x5F00 + [string][char]0x59CB) 220 ([System.Drawing.Color]::FromArgb(200, 136, 255, 136))
-$btnL = MkBtn ([string][char]0x5206 + [string][char]0x6BB5) 268 ([System.Drawing.Color]::FromArgb(200, 136, 136, 255))
-$btnC = MkBtn ([string][char]0x6E05 + [string][char]0x7A7A) 316 ([System.Drawing.Color]::FromArgb(200, 255, 136, 136))
+$btnS = MkBtn ([string][char]0x5F00 + [string][char]0x59CB) 310 ([System.Drawing.Color]::FromArgb(200, 136, 255, 136))
+$btnL = MkBtn ([string][char]0x5206 + [string][char]0x6BB5) 380 ([System.Drawing.Color]::FromArgb(200, 136, 136, 255))
+$btnC = MkBtn ([string][char]0x6E05 + [string][char]0x7A7A) 450 ([System.Drawing.Color]::FromArgb(200, 255, 136, 136))
 
 [void]$tBar.Controls.AddRange(@($dragH, $curBox, $lblClock, $btnS, $btnL, $btnC))
 
@@ -156,40 +155,40 @@ $segPanel.Visible = $false
 # ===== Build Segment Row =====
 function New-Row($seg) {
     $row = New-Object System.Windows.Forms.Panel
-    $row.Height = 42
+    $row.Height = 63
     $row.Dock = [System.Windows.Forms.DockStyle]::Top
     $row.BackColor = [System.Drawing.Color]::FromArgb(22, 24, 38)
-    $row.Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 1)
+    $row.Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 2)
 
     $nL = New-Object System.Windows.Forms.Label
-    $nL.Location = New-Object System.Drawing.Point(6, 0)
-    $nL.Size = New-Object System.Drawing.Size(24, 42)
+    $nL.Location = New-Object System.Drawing.Point(9, 0)
+    $nL.Size = New-Object System.Drawing.Size(36, 63)
     $nL.Text = "#$($seg.Id)"
-    $nL.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $nL.Font = New-Object System.Drawing.Font("Consolas", 14)
     $nL.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 100)
     $nL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 
     $tL = New-Object System.Windows.Forms.Label
-    $tL.Location = New-Object System.Drawing.Point(30, 2)
-    $tL.Size = New-Object System.Drawing.Size(100, 22)
-    $tL.Font = New-Object System.Drawing.Font("Consolas", 15, [System.Drawing.FontStyle]::Bold)
+    $tL.Location = New-Object System.Drawing.Point(45, 3)
+    $tL.Size = New-Object System.Drawing.Size(150, 33)
+    $tL.Font = New-Object System.Drawing.Font("Consolas", 23, [System.Drawing.FontStyle]::Bold)
     $tL.ForeColor = [System.Drawing.Color]::FromArgb(255, 68, 68)
     $tL.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $tL.Text = "00:00.0"
 
     $sL = New-Object System.Windows.Forms.Label
-    $sL.Location = New-Object System.Drawing.Point(30, 24)
-    $sL.Size = New-Object System.Drawing.Size(100, 16)
-    $sL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8)
+    $sL.Location = New-Object System.Drawing.Point(45, 36)
+    $sL.Size = New-Object System.Drawing.Size(150, 24)
+    $sL.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 12)
     $sL.ForeColor = [System.Drawing.Color]::FromArgb(150, 60, 60)
     $sL.Text = [string][char]0x25CF + " " + [string][char]0x8BA1 + [string][char]0x65F6 + [string][char]0x4E2D + "..."
 
     function MkSb($t, $x, $c, $act) {
         $b = New-Object System.Windows.Forms.Button
-        $b.Size = New-Object System.Drawing.Size(26, 26)
-        $b.Location = New-Object System.Drawing.Point($x, 8)
+        $b.Size = New-Object System.Drawing.Size(39, 39)
+        $b.Location = New-Object System.Drawing.Point($x, 12)
         $b.Text = $t
-        $b.Font = New-Object System.Drawing.Font("Segoe UI Symbol", 10)
+        $b.Font = New-Object System.Drawing.Font("Segoe UI Symbol", 15)
         $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
         $b.ForeColor = $c
         $b.BackColor = [System.Drawing.Color]::FromArgb(30, 34, 48)
@@ -207,10 +206,9 @@ function New-Row($seg) {
         return $b
     }
 
-    # 用ASCII替代代理对emoji: || 代替 ⏸, ^ 代替 ⬆, X 代替 ✕
-    $bP = MkSb "||" 254 ([System.Drawing.Color]::FromArgb(170, 170, 200)) "toggle"
-    $bU = MkSb "^" 284 ([System.Drawing.Color]::FromArgb(170, 170, 200)) "promote"
-    $bD = MkSb "X" 314 ([System.Drawing.Color]::FromArgb(170, 100, 100)) "remove"
+    $bP = MkSb "||" 381 ([System.Drawing.Color]::FromArgb(170, 170, 200)) "toggle"
+    $bU = MkSb "^" 426 ([System.Drawing.Color]::FromArgb(170, 170, 200)) "promote"
+    $bD = MkSb "X" 471 ([System.Drawing.Color]::FromArgb(170, 100, 100)) "remove"
 
     [void]$row.Controls.AddRange(@($nL, $tL, $sL, $bP, $bU, $bD))
     $script:segCtrls[$seg.Id] = @{ Row=$row; TL=$tL; SL=$sL; PB=$bP }
@@ -230,7 +228,7 @@ function Rebuild-UI {
     } else {
         $segPanel.Visible = $true
         foreach ($seg in $script:segments) { [void]$segPanel.Controls.Add((New-Row $seg)) }
-        $h = $H_MAIN + ($script:segments.Count * 42) + 4
+        $h = $H_MAIN + ($script:segments.Count * 63) + 6
         $scr = [System.Windows.Forms.Screen]::FromControl($form).WorkingArea
         if ($h -gt $scr.Height - 40) { $h = $scr.Height - 40 }
         $form.ClientSize = New-Object System.Drawing.Size($W, $h)
@@ -434,7 +432,7 @@ $notifyIcon.ContextMenuStrip = $tc
 
 # ===== Position =====
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$form.Location = New-Object System.Drawing.Point(($scr.Right - $W - 10), ($scr.Bottom - 120))
+$form.Location = New-Object System.Drawing.Point(($scr.Right - $W - 10), ($scr.Bottom - 170))
 
 $tk.Start()
 $form.Show()
