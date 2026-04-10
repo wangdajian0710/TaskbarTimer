@@ -19,7 +19,7 @@ $script:running = $false
 $script:pinned = $false
 $script:startTime = $null
 $script:laps = @()
-$script:lapStartTime = $null  # 当前分段的开始时间
+$script:lapStartTime = $null
 
 # 主窗口
 $form = New-Object System.Windows.Forms.Form
@@ -140,7 +140,7 @@ $lblTotal.Text = "00:00.0"
 [void]$totalBox.Controls.Add($lblTotal)
 [void]$totalBox.Controls.Add($lblTotalTitle)
 
-# 分段记录区域
+# 分段记录区域 - 红色字体
 $lapBox = New-Object System.Windows.Forms.Panel
 $lapBox.Location = New-Object System.Drawing.Point(12, 86)
 $lapBox.Size = New-Object System.Drawing.Size(($W - 24), 114)
@@ -158,7 +158,7 @@ $lblLapTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lapList = New-Object System.Windows.Forms.ListBox
 $lapList.Dock = [System.Windows.Forms.DockStyle]::Fill
 $lapList.BackColor = [System.Drawing.Color]::FromArgb(40, 30, 35, 45)
-$lapList.ForeColor = [System.Drawing.Color]::FromArgb(220, 255, 255, 255)
+$lapList.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)  # 红色字体
 $lapList.BorderStyle = [System.Windows.Forms.BorderStyle]::None
 $lapList.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
 
@@ -194,7 +194,7 @@ $btnStart = MakeBtn "开始" 52
 $btnLap = MakeBtn "分段" 52
 $btnReset = MakeBtn "清空" 52
 $btnPause = MakeBtn "暂停" 52
-$btnPause.Visible = $false  # 开始后显示暂停
+$btnPause.Visible = $false
 
 [void]$btnPanel.Controls.Add($btnReset)
 [void]$btnPanel.Controls.Add($btnLap)
@@ -225,7 +225,6 @@ function Stop-Timer {
     $btnPause.Visible = $false
 }
 
-# 按钮事件
 $btnStart.Add_Click({ Start-Timer })
 
 $btnPause.Add_Click({
@@ -234,17 +233,11 @@ $btnPause.Add_Click({
 
 $btnLap.Add_Click({
     if ($script:startTime -and $script:running) {
-        # 记录当前总时间
         $totalElapsed = (Get-Date) - $script:startTime
         $totalStr = $totalElapsed.ToString("mm\:ss\.f")
-        
-        # 同步计时：每段独立计时，从分段时刻开始重新计
         $script:lapStartTime = Get-Date
-        
-        # 添加到列表
         $script:laps = @($totalStr) + $script:laps
         if ($script:laps.Count -gt 20) { $script:laps = $script:laps[0..19] }
-        
         $lapList.Items.Clear()
         foreach ($l in $script:laps) { [void]$lapList.Items.Add($l) }
     }
@@ -290,7 +283,6 @@ $timer.Interval = 100
 
 $timer.Add_Tick({
     $lblClock.Text = (Get-Date).ToString("HH:mm")
-    
     if ($script:startTime) {
         $elapsed = (Get-Date) - $script:startTime
         $lblTotal.Text = $elapsed.ToString("mm\:ss\.f")
