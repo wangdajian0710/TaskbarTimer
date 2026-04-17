@@ -2,6 +2,8 @@
 
 Windows 任务栏托盘计时器 - 简洁的桌面秒表工具。
 
+> ⚠️ 这是旧版，升级版请看 [WindowTimer](https://github.com/wangdajian0710/WindowTimer)。
+
 ## 功能
 
 - ⏱️ 秒表计时（开始/暂停/清空）
@@ -31,3 +33,7 @@ Windows 任务栏托盘计时器 - 简洁的桌面秒表工具。
 - **v1.5** - 全部放大1.5倍（尺寸/字体/间距）
 - 修复 PS5.1 兼容性 bug
 - 去除 Win32 透明 API，改用纯色窗口
+
+## 相关项目
+
+- [WindowTimer](https://github.com/wangdajian0710/WindowTimer) - 升级版窗口计时监视器
